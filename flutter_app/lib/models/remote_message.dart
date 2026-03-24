@@ -51,14 +51,16 @@ class RemoteMessage {
   }
 
   RemoteMessage copyWith({
+    String? messageId,
+    String? messageContent,
     int? status,
     int? isPin,
     String? pinTime,
   }) {
     return RemoteMessage(
-      messageId: messageId,
+      messageId: messageId ?? this.messageId,
       roomId: roomId,
-      messageContent: messageContent,
+      messageContent: messageContent ?? this.messageContent,
       deadTime: deadTime,
       senderDeviceId: senderDeviceId,
       receiverDeviceId: receiverDeviceId,

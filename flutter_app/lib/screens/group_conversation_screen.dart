@@ -43,6 +43,12 @@ class _GroupConversationScreenState
   final Set<String> _selectedIds = {};
   RemoteMessage? _replyTo;
 
+  // Specific handler references for clean dispose (don't kill global listeners)
+  late final void Function(dynamic) _onMessageSended;
+  late final void Function(dynamic) _onMessageDeleted;
+  late final void Function(dynamic) _onMessagesDeleted;
+  late final void Function(dynamic) _onMessagePinList;
+
   String get _roomId =>
       '${AppConstants.grpPrefix}${widget.group.groupId}]';
 
@@ -68,7 +74,7 @@ class _GroupConversationScreenState
   void _listenToSocket() {
     final socket = SocketClient.instance;
 
-    socket.on(AppConstants.pvMessageSended, (data) {
+    _onMessageSended = (data) {
       if (data == null) return;
       final parsed = _d(data);
       if (parsed is! Map) return;
@@ -78,14 +84,23 @@ class _GroupConversationScreenState
       // Only handle messages for this group room
       if (!content.startsWith(_roomId)) return;
 
+      // Sender already added message locally — only process for others
+      if (msg.senderDeviceId == _myDeviceId) return;
+
       // Strip group prefix for display
+      final strippedContent = content.startsWith('$_roomId:')
+          ? content.substring(_roomId.length + 1)
+          : content;
+
+      // Group messages have null message_id (not stored in DB).
+      // Generate a stable local ID so addMessage doesn't drop it.
+      final localId = msg.messageId ??
+          '${msg.senderDeviceId}_${msg.createdAt ?? DateTime.now().millisecondsSinceEpoch}';
+
       final displayMsg = RemoteMessage(
-        messageId: msg.messageId,
+        messageId: localId,
         roomId: msg.roomId,
-        messageContent:
-            content.startsWith('$_roomId:')
-                ? content.substring(_roomId.length + 1)
-                : content,
+        messageContent: strippedContent,
         deadTime: msg.deadTime,
         senderDeviceId: msg.senderDeviceId,
         typeMessage: msg.typeMessage,
@@ -94,41 +109,36 @@ class _GroupConversationScreenState
         replyMessage: msg.replyMessage,
         isPin: msg.isPin,
         pinTime: msg.pinTime,
+        status: AppConstants.statusSent,
       );
 
-      ref
-          .read(messagesProvider(widget.group.groupId).notifier)
-          .addMessage(displayMsg);
+      ref.read(messagesProvider(widget.group.groupId).notifier).addMessage(displayMsg);
       _scrollToBottom();
 
-      // Check for system messages
-      final rawContent = msg.messageContent ?? '';
-      if (rawContent.contains(AppConstants.grpNamePrefix)) {
-        _handleGroupNameChange(rawContent);
-      } else if (rawContent.contains(AppConstants.grpLeavePrefix)) {
-        _handleMemberLeave(rawContent, msg.senderDeviceId ?? '');
+      // System message handling
+      if (content.contains(AppConstants.grpNamePrefix)) {
+        _handleGroupNameChange(content);
+      } else if (content.contains(AppConstants.grpLeavePrefix)) {
+        _handleMemberLeave(content, msg.senderDeviceId ?? '');
       }
 
       ref.read(groupsProvider.notifier).updateLastMessage(
-            widget.group.groupId,
-            displayMsg.messageContent ?? '',
-            DateTime.now(),
-          );
-    });
+            widget.group.groupId, strippedContent, DateTime.now());
+    };
+    socket.on(AppConstants.pvMessageSended, _onMessageSended);
 
-    socket.on(AppConstants.pvMessageDeleted, (data) {
+    _onMessageDeleted = (data) {
       if (data == null) return;
       final parsed = _d(data);
       if (parsed is! Map) return;
       final id = parsed['message_id']?.toString();
       if (id != null) {
-        ref
-            .read(messagesProvider(widget.group.groupId).notifier)
-            .removeMessage(id);
+        ref.read(messagesProvider(widget.group.groupId).notifier).removeMessage(id);
       }
-    });
+    };
+    socket.on(AppConstants.pvMessageDeleted, _onMessageDeleted);
 
-    socket.on(AppConstants.pvMessagesDeleted, (data) {
+    _onMessagesDeleted = (data) {
       if (data == null) return;
       final parsed = _d(data);
       if (parsed is! Map) return;
@@ -137,13 +147,12 @@ class _GroupConversationScreenState
               .toList() ??
           [];
       if (ids.isNotEmpty) {
-        ref
-            .read(messagesProvider(widget.group.groupId).notifier)
-            .removeMessages(ids);
+        ref.read(messagesProvider(widget.group.groupId).notifier).removeMessages(ids);
       }
-    });
+    };
+    socket.on(AppConstants.pvMessagesDeleted, _onMessagesDeleted);
 
-    socket.on(AppConstants.pvMessagePinList, (data) {
+    _onMessagePinList = (data) {
       if (data == null) return;
       final p = _d(data);
       List<dynamic> rawList;
@@ -157,10 +166,9 @@ class _GroupConversationScreenState
       final pinned = rawList
           .map((e) => RemoteMessage.fromJson(Map<String, dynamic>.from(e)))
           .toList();
-      ref
-          .read(messagesProvider(widget.group.groupId).notifier)
-          .applyPinList(pinned);
-    });
+      ref.read(messagesProvider(widget.group.groupId).notifier).applyPinList(pinned);
+    };
+    socket.on(AppConstants.pvMessagePinList, _onMessagePinList);
   }
 
   void _handleGroupNameChange(String content) {
@@ -512,10 +520,10 @@ class _GroupConversationScreenState
 
   @override
   void dispose() {
-    SocketClient.instance.off(AppConstants.pvMessageSended);
-    SocketClient.instance.off(AppConstants.pvMessageDeleted);
-    SocketClient.instance.off(AppConstants.pvMessagesDeleted);
-    SocketClient.instance.off(AppConstants.pvMessagePinList);
+    SocketClient.instance.off(AppConstants.pvMessageSended, _onMessageSended);
+    SocketClient.instance.off(AppConstants.pvMessageDeleted, _onMessageDeleted);
+    SocketClient.instance.off(AppConstants.pvMessagesDeleted, _onMessagesDeleted);
+    SocketClient.instance.off(AppConstants.pvMessagePinList, _onMessagePinList);
     _textController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -823,6 +831,10 @@ class _GroupConversationScreenState
                                   color: colorScheme.outline,
                                 ),
                               ),
+                              if (isMe) ...[
+                                const SizedBox(width: 3),
+                                _buildStatusTick(msg, colorScheme),
+                              ],
                             ],
                           ),
                         ],
@@ -837,6 +849,21 @@ class _GroupConversationScreenState
         ),
       ),
     );
+  }
+
+  Widget _buildStatusTick(RemoteMessage msg, ColorScheme colorScheme) {
+    switch (msg.status) {
+      case AppConstants.statusSending:
+        return Icon(Icons.access_time, size: 13, color: colorScheme.outline);
+      case AppConstants.statusSent:
+        return Icon(Icons.done, size: 14, color: colorScheme.outline);
+      case AppConstants.statusDelivered:
+        return Icon(Icons.done_all, size: 14, color: colorScheme.outline);
+      case AppConstants.statusRead:
+        return Icon(Icons.done_all, size: 14, color: Colors.blue);
+      default:
+        return Icon(Icons.done, size: 14, color: colorScheme.outline);
+    }
   }
 
   Widget _buildSystemBubble(String content, ColorScheme colorScheme) {
