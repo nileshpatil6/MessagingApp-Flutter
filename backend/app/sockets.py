@@ -25,7 +25,9 @@ def _connected_users() -> list:
 
 def _find_socket(device_id: str) -> Optional[str]:
     u = users.get(device_id)
-    return u.get("socket_id") if u else None
+    if u and u.get("connected"):
+        return u.get("socket_id")
+    return None
 
 
 async def _deliver_to_device(device_id: str, event: str, data):
@@ -197,8 +199,15 @@ async def on_send_message(sid, data):
         await sio.emit("pv_messageSended", json.dumps(result), to=sid)
     else:
         # Private: store in DB + dual delivery
-        saved = await msg_model.insert(message)
-        result = dict(saved)
+        try:
+            saved = await msg_model.insert(message)
+            if not saved:
+                print(f"[ERROR] msg_model.insert returned None for room={room_id}", flush=True)
+                return
+            result = dict(saved)
+        except Exception as exc:
+            print(f"[ERROR] msg_model.insert failed: {exc}", flush=True)
+            return
         # Echo _tempId back so the sender client can replace its optimistic bubble
         if message.get("_tempId"):
             result["_tempId"] = message["_tempId"]

@@ -51,6 +51,17 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
   RemoteMessage? _replyTo;
   String? _deadTime;
 
+  // Keep handler references so dispose() removes only this screen's listeners
+  late final void Function(dynamic) _onListMessage;
+  late final void Function(dynamic) _onMessageSended;
+  late final void Function(dynamic) _onMessageDeleted;
+  late final void Function(dynamic) _onMessagesDeleted;
+  late final void Function(dynamic) _onMessagePinList;
+  late final void Function(dynamic) _onRoomId;
+  late final void Function(dynamic) _onAutoJoinRoom;
+  late final void Function(dynamic) _onMessageRead;
+  late final void Function(dynamic) _onMessageDelivered;
+
   @override
   void initState() {
     super.initState();
@@ -113,7 +124,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
   void _listenToSocket() {
     final socket = SocketClient.instance;
 
-    socket.on(AppConstants.pvRoomId, (data) {
+    _onRoomId = (data) {
       if (data == null) return;
       final roomId = data.toString();
       if (roomId.isNotEmpty) {
@@ -122,9 +133,10 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
         // Retry any messages that were stuck in "sending" state (e.g. sent offline)
         _retryPendingMessages(roomId);
       }
-    });
+    };
+    socket.on(AppConstants.pvRoomId, _onRoomId);
 
-    socket.on(AppConstants.pvAutoJoinRoom, (data) {
+    _onAutoJoinRoom = (data) {
       if (data == null) return;
       // Server sends str(room_id) — raw string
       final roomId = data.toString();
@@ -135,9 +147,10 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
           setState(() => _roomId = roomId);
         }
       }
-    });
+    };
+    socket.on(AppConstants.pvAutoJoinRoom, _onAutoJoinRoom);
 
-    socket.on(AppConstants.pvListMessage, (data) {
+    _onListMessage = (data) {
       if (data == null) return;
       final parsed = _d(data);
       List<dynamic> rawList;
@@ -162,9 +175,10 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
           _emitRead(msg.messageId!);
         }
       }
-    });
+    };
+    socket.on(AppConstants.pvListMessage, _onListMessage);
 
-    socket.on(AppConstants.pvMessageSended, (data) {
+    _onMessageSended = (data) {
       if (data == null || _roomId.isEmpty) return;
       final parsed = _d(data);
       if (parsed is! Map) return;
@@ -201,9 +215,10 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
               DateTime.now(),
             );
       }
-    });
+    };
+    socket.on(AppConstants.pvMessageSended, _onMessageSended);
 
-    socket.on(AppConstants.pvMessageDeleted, (data) {
+    _onMessageDeleted = (data) {
       if (data == null || _roomId.isEmpty) return;
       final parsed = _d(data);
       if (parsed is! Map) return;
@@ -211,9 +226,10 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
       if (id != null) {
         ref.read(messagesProvider(_roomId).notifier).removeMessage(id);
       }
-    });
+    };
+    socket.on(AppConstants.pvMessageDeleted, _onMessageDeleted);
 
-    socket.on(AppConstants.pvMessagesDeleted, (data) {
+    _onMessagesDeleted = (data) {
       if (data == null || _roomId.isEmpty) return;
       final parsed = _d(data);
       if (parsed is! Map) return;
@@ -224,9 +240,10 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
       if (ids.isNotEmpty) {
         ref.read(messagesProvider(_roomId).notifier).removeMessages(ids);
       }
-    });
+    };
+    socket.on(AppConstants.pvMessagesDeleted, _onMessagesDeleted);
 
-    socket.on(AppConstants.pvMessagePinList, (data) {
+    _onMessagePinList = (data) {
       if (data == null) return;
       final parsed = _d(data);
       List<dynamic> rawList;
@@ -242,9 +259,10 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
           .map((e) => RemoteMessage.fromJson(Map<String, dynamic>.from(e)))
           .toList();
       ref.read(messagesProvider(_roomId).notifier).applyPinList(pinned);
-    });
+    };
+    socket.on(AppConstants.pvMessagePinList, _onMessagePinList);
 
-    socket.on(AppConstants.pvMessageRead, (data) {
+    _onMessageRead = (data) {
       if (data == null) return;
       final parsed = _d(data);
       if (parsed is! Map) return;
@@ -255,9 +273,10 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
             .read(messagesProvider(roomId).notifier)
             .updateMessageStatus(id, AppConstants.statusRead);
       }
-    });
+    };
+    socket.on(AppConstants.pvMessageRead, _onMessageRead);
 
-    socket.on(AppConstants.pvMessageDelivered, (data) {
+    _onMessageDelivered = (data) {
       if (data == null) return;
       final parsed = _d(data);
       if (parsed is! Map) return;
@@ -268,7 +287,8 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
             .read(messagesProvider(roomId).notifier)
             .updateMessageStatus(id, AppConstants.statusDelivered);
       }
-    });
+    };
+    socket.on(AppConstants.pvMessageDelivered, _onMessageDelivered);
   }
 
   /// Re-emit any messages still stuck in "sending_" state (sent while offline).
@@ -614,15 +634,16 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
   void dispose() {
     // Re-enable notifications when leaving this conversation
     NotificationService.instance.activeConversationDeviceId = null;
-    SocketClient.instance.off(AppConstants.pvListMessage);
-    SocketClient.instance.off(AppConstants.pvMessageSended);
-    SocketClient.instance.off(AppConstants.pvMessageDeleted);
-    SocketClient.instance.off(AppConstants.pvMessagesDeleted);
-    SocketClient.instance.off(AppConstants.pvMessagePinList);
-    SocketClient.instance.off(AppConstants.pvRoomId);
-    SocketClient.instance.off(AppConstants.pvAutoJoinRoom);
-    SocketClient.instance.off(AppConstants.pvMessageRead);
-    SocketClient.instance.off(AppConstants.pvMessageDelivered);
+    // Remove only this screen's handlers — global listeners (main.dart) are preserved
+    SocketClient.instance.off(AppConstants.pvListMessage, _onListMessage);
+    SocketClient.instance.off(AppConstants.pvMessageSended, _onMessageSended);
+    SocketClient.instance.off(AppConstants.pvMessageDeleted, _onMessageDeleted);
+    SocketClient.instance.off(AppConstants.pvMessagesDeleted, _onMessagesDeleted);
+    SocketClient.instance.off(AppConstants.pvMessagePinList, _onMessagePinList);
+    SocketClient.instance.off(AppConstants.pvRoomId, _onRoomId);
+    SocketClient.instance.off(AppConstants.pvAutoJoinRoom, _onAutoJoinRoom);
+    SocketClient.instance.off(AppConstants.pvMessageRead, _onMessageRead);
+    SocketClient.instance.off(AppConstants.pvMessageDelivered, _onMessageDelivered);
     _textController.dispose();
     _searchController.dispose();
     _scrollController.dispose();

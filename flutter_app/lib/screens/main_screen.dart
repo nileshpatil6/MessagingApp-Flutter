@@ -972,19 +972,26 @@ class _MainScreenState extends ConsumerState<MainScreen>
       context: context,
       builder: (_) => AlertDialog(
         title: Text(myName),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            QrImageView(
-              data: myId,
-              version: QrVersions.auto,
-              size: 200,
-            ),
-            const SizedBox(height: 8),
-            Text(myId,
-                style: const TextStyle(fontSize: 12, color: Colors.grey),
-                textAlign: TextAlign.center),
-          ],
+        content: SizedBox(
+          width: 240,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 200,
+                height: 200,
+                child: QrImageView(
+                  data: myId,
+                  version: QrVersions.auto,
+                  size: 200,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(myId,
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  textAlign: TextAlign.center),
+            ],
+          ),
         ),
         actions: [
           TextButton(

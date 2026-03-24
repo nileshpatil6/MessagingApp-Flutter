@@ -43,7 +43,11 @@ class SocketClient {
     socket.on(event, handler);
   }
 
-  void off(String event) {
-    socket.off(event);
+  void off(String event, [void Function(dynamic)? handler]) {
+    if (handler != null) {
+      socket.off(event, handler);
+    } else {
+      socket.off(event);
+    }
   }
 }
