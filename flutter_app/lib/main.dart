@@ -87,6 +87,39 @@ String _fallbackId() =>
     'device_${DateTime.now().millisecondsSinceEpoch}';
 
 void _setupGlobalSocketListeners() {
+  // Persist delivery/read status globally so it survives screen navigation
+  SocketClient.instance.on(AppConstants.pvMessageDelivered, (data) async {
+    if (data == null) return;
+    dynamic parsed;
+    try {
+      parsed = data is String ? jsonDecode(data) : data;
+    } catch (_) {
+      return;
+    }
+    if (parsed is! Map) return;
+    final msgId = parsed['message_id']?.toString();
+    final roomId = parsed['room_id']?.toString();
+    if (msgId != null && roomId != null && roomId.isNotEmpty) {
+      await LocalStorage.saveMessageStatus(roomId, msgId, AppConstants.statusDelivered);
+    }
+  });
+
+  SocketClient.instance.on(AppConstants.pvMessageRead, (data) async {
+    if (data == null) return;
+    dynamic parsed;
+    try {
+      parsed = data is String ? jsonDecode(data) : data;
+    } catch (_) {
+      return;
+    }
+    if (parsed is! Map) return;
+    final msgId = parsed['message_id']?.toString();
+    final roomId = parsed['room_id']?.toString();
+    if (msgId != null && roomId != null && roomId.isNotEmpty) {
+      await LocalStorage.saveMessageStatus(roomId, msgId, AppConstants.statusRead);
+    }
+  });
+
   SocketClient.instance.on(AppConstants.pvMessageSended, (data) async {
     if (data == null) return;
     dynamic parsed;

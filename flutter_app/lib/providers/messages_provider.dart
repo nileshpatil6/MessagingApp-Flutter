@@ -9,6 +9,7 @@ class MessagesNotifier extends StateNotifier<List<RemoteMessage>> {
 
   // ── Load ──────────────────────────────────────────────────────────────────
 
+  /// Load messages from server response, overlay saved statuses, then cache.
   Future<void> loadMessages(List<RemoteMessage> messages,
       {String myDeviceId = ''}) async {
     final deleted = await LocalStorage.getDeletedIds(roomId);
@@ -17,19 +18,36 @@ class MessagesNotifier extends StateNotifier<List<RemoteMessage>> {
         .where((m) => !deleted.contains(m.messageId))
         .map((m) {
           int status = m.status;
-          // Server never stores status — own messages in DB are at least delivered
           if (myDeviceId.isNotEmpty &&
               m.senderDeviceId == myDeviceId &&
               status == 1) {
             status = 2;
           }
-          // Overlay any locally-persisted status (always highest seen value)
           final saved = savedStatuses[m.messageId ?? ''];
           if (saved != null && saved > status) status = saved;
           return status != m.status ? m.copyWith(status: status) : m;
         })
         .toList();
     state = filtered;
+    // Persist for offline use — also ensure any extra sent messages in state
+    // (temp ids not yet confirmed) are not lost
+    LocalStorage.saveCachedMessages(
+        roomId, filtered.map((m) => m.toJson()).toList());
+  }
+
+  /// Show cached messages instantly before the server responds.
+  Future<void> loadCached() async {
+    if (state.isNotEmpty) return; // already have data, don't overwrite
+    final raw = await LocalStorage.loadCachedMessages(roomId);
+    if (raw.isEmpty) return;
+    final savedStatuses = await LocalStorage.getMessageStatuses(roomId);
+    final messages = raw.map((e) {
+      final m = RemoteMessage.fromJson(e);
+      final saved = savedStatuses[m.messageId ?? ''];
+      if (saved != null && saved > m.status) return m.copyWith(status: saved);
+      return m;
+    }).toList();
+    state = messages;
   }
 
   // ── Add ───────────────────────────────────────────────────────────────────

@@ -78,6 +78,18 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
       }
     });
 
+    // Load cached room ID + messages instantly so UI is not blank while waiting
+    // for the socket to respond (also works fully offline)
+    final cachedRoomId =
+        await LocalStorage.loadRoomId(widget.user.deviceId);
+    if (cachedRoomId != null && cachedRoomId.isNotEmpty && mounted) {
+      setState(() => _roomId = cachedRoomId);
+      await ref
+          .read(messagesProvider(cachedRoomId).notifier)
+          .loadCached();
+      _scrollToBottom();
+    }
+
     _joinRoom();
     _listenToSocket();
   }
@@ -103,9 +115,12 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
 
     socket.on(AppConstants.pvRoomId, (data) {
       if (data == null) return;
-      // Server sends str(room_id) — raw string
       final roomId = data.toString();
-      if (mounted && roomId.isNotEmpty) setState(() => _roomId = roomId);
+      if (roomId.isNotEmpty) {
+        // Persist so next open can load cache immediately
+        LocalStorage.saveRoomId(widget.user.deviceId, roomId);
+        if (mounted) setState(() => _roomId = roomId);
+      }
     });
 
     socket.on(AppConstants.pvAutoJoinRoom, (data) {

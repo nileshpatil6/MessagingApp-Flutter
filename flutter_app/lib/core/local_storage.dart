@@ -200,6 +200,39 @@ class LocalStorage {
     await prefs.setBool('notifications_enabled', enabled);
   }
 
+  // ── ROOM ID CACHE ─────────────────────────────
+
+  static Future<void> saveRoomId(String partnerDeviceId, String roomId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('room_id_$partnerDeviceId', roomId);
+  }
+
+  static Future<String?> loadRoomId(String partnerDeviceId) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('room_id_$partnerDeviceId');
+  }
+
+  // ── MESSAGE CACHE ─────────────────────────────
+
+  static Future<void> saveCachedMessages(
+      String roomId, List<Map<String, dynamic>> messages) async {
+    final prefs = await SharedPreferences.getInstance();
+    // Keep last 100 messages to limit storage
+    final limited = messages.length > 100
+        ? messages.sublist(messages.length - 100)
+        : messages;
+    await prefs.setString('msg_cache_$roomId', jsonEncode(limited));
+  }
+
+  static Future<List<Map<String, dynamic>>> loadCachedMessages(
+      String roomId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('msg_cache_$roomId');
+    if (raw == null) return [];
+    final decoded = jsonDecode(raw) as List;
+    return decoded.map((e) => Map<String, dynamic>.from(e)).toList();
+  }
+
   // ── RESET ─────────────────────────────────────
 
   static Future<void> reset() async {
