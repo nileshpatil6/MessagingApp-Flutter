@@ -1,0 +1,87 @@
+# ── Python / Backend ──────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+ENV/
+pip-wheel-metadata/
+*.log
+
+# SQLite database
+*.db
+*.sqlite
+*.sqlite3
+
+# dotenv / secrets
+.env
+.env.*
+!.env.example
+
+# ── Flutter / Dart ────────────────────────────────────────────────────────────
+# Build outputs
+flutter_app/build/
+flutter_app/.dart_tool/
+flutter_app/.flutter-plugins
+flutter_app/.flutter-plugins-dependencies
+flutter_app/.packages
+
+# Pub cache / lock (keep pubspec.lock for reproducible builds — remove line below to ignore it)
+# flutter_app/pubspec.lock
+
+# Generated files
+flutter_app/**/*.g.dart
+flutter_app/**/*.freezed.dart
+
+# Android
+flutter_app/android/.gradle/
+flutter_app/android/local.properties
+flutter_app/android/key.properties
+flutter_app/android/*.jks
+flutter_app/android/*.keystore
+flutter_app/android/app/google-services.json
+flutter_app/android/app/debug/
+flutter_app/android/app/release/
+flutter_app/android/app/profile/
+flutter_app/android/captures/
+
+# iOS
+flutter_app/ios/Pods/
+flutter_app/ios/.symlinks/
+flutter_app/ios/Flutter/Flutter.framework
+flutter_app/ios/Flutter/Flutter.podspec
+flutter_app/ios/GoogleService-Info.plist
+
+# macOS
+flutter_app/macos/Pods/
+flutter_app/macos/Flutter/ephemeral/
+
+# Windows
+flutter_app/windows/flutter/ephemeral/
+
+# Linux
+flutter_app/linux/flutter/ephemeral/
+
+# Web
+flutter_app/web/
+
+# ── IDEs ──────────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.DS_Store
+Thumbs.db
+
+# ── Uploaded files (local server storage) ─────────────────────────────────────
+backend/public/
+backend/uploads/
