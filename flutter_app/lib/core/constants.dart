@@ -1,5 +1,5 @@
 class AppConstants {
-  static const String serverUrl = 'http://10.125.253.199:3000';
+  static const String serverUrl = 'http://153.127.16.117:3000';
 
   // Socket events — emit
   static const String pvAccess = 'pv_access';

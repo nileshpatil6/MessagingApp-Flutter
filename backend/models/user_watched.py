@@ -1,3 +1,4 @@
+from typing import Optional
 from datetime import datetime
 from app.database import execute, fetchone, fetchall
 
@@ -77,14 +78,14 @@ async def update_socket(device_id: str, socket_id: str):
     )
 
 
-async def get_by_device_id(device_id: str) -> dict | None:
+async def get_by_device_id(device_id: str) -> Optional[dict]:
     row = await fetchone(
         "SELECT * FROM user_watched WHERE WATCHED_DEVICE_ID=%s", (device_id,)
     )
     return _format(row)
 
 
-async def get_by_socket_id(socket_id: str) -> dict | None:
+async def get_by_socket_id(socket_id: str) -> Optional[dict]:
     row = await fetchone("SELECT * FROM user_watched WHERE SOCKET_ID=%s", (socket_id,))
     return _format(row)
 

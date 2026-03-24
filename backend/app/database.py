@@ -1,3 +1,4 @@
+from typing import Optional
 import re
 import sqlite3
 import aiosqlite
@@ -121,7 +122,7 @@ def release_conn(conn):
     pass  # no-op for SQLite single connection
 
 
-def _row_to_dict(row) -> dict | None:
+def _row_to_dict(row) -> Optional[dict]:
     if row is None:
         return None
     return dict(row)
@@ -134,7 +135,7 @@ async def execute(sql: str, args=None) -> int:
     return cursor.lastrowid
 
 
-async def fetchone(sql: str, args=None) -> dict | None:
+async def fetchone(sql: str, args=None) -> Optional[dict]:
     sql = _adapt(sql)
     cursor = await _db.execute(sql, args or ())
     row = await cursor.fetchone()

@@ -117,9 +117,10 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
       if (data == null) return;
       final roomId = data.toString();
       if (roomId.isNotEmpty) {
-        // Persist so next open can load cache immediately
         LocalStorage.saveRoomId(widget.user.deviceId, roomId);
         if (mounted) setState(() => _roomId = roomId);
+        // Retry any messages that were stuck in "sending" state (e.g. sent offline)
+        _retryPendingMessages(roomId);
       }
     });
 
@@ -268,6 +269,25 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
             .updateMessageStatus(id, AppConstants.statusDelivered);
       }
     });
+  }
+
+  /// Re-emit any messages still stuck in "sending_" state (sent while offline).
+  void _retryPendingMessages(String roomId) {
+    final messages = ref.read(messagesProvider(roomId));
+    for (final msg in messages) {
+      if (msg.messageId?.startsWith('sending_') == true) {
+        SocketClient.instance.emit(AppConstants.pvSendMessage, {
+          'room_id': roomId,
+          'message_content': msg.messageContent,
+          'type_message': msg.typeMessage,
+          'sender_device_id': _myDeviceId,
+          'receiver_device_id': widget.user.deviceId,
+          '_tempId': msg.messageId,
+          if (msg.replyMessageId != null) 'reply_message_id': msg.replyMessageId,
+          if (msg.deadTime != null) 'dead_time': _mapDeadTime(msg.deadTime),
+        });
+      }
+    }
   }
 
   void _emitDelivered(String messageId) async {

@@ -1,3 +1,4 @@
+from typing import Optional
 import socketio
 import json
 from datetime import datetime
@@ -22,7 +23,7 @@ def _connected_users() -> list:
     return [u for u in users.values() if u.get("connected")]
 
 
-def _find_socket(device_id: str) -> str | None:
+def _find_socket(device_id: str) -> Optional[str]:
     u = users.get(device_id)
     return u.get("socket_id") if u else None
 
@@ -205,17 +206,6 @@ async def on_send_message(sid, data):
         await sio.emit("pv_messageSended", payload, room=str(room_id))
         if receiver_device_id:
             await _deliver_to_device(receiver_device_id, "pv_messageSended", payload)
-        # Auto-deliver: if the receiver is online right now, immediately tell
-        # the sender their message was delivered (no need to wait for client ack)
-        sender_device_id = message.get("sender_device_id")
-        receiver_info = users.get(receiver_device_id or "", {})
-        if receiver_info.get("connected") and sender_device_id:
-            delivery_payload = json.dumps({
-                "message_id": str(result.get("message_id", "")),
-                "room_id": room_id,
-                "sender_device_id": sender_device_id,
-            })
-            await _deliver_to_device(sender_device_id, "pv_messageDelivered", delivery_payload)
 
 
 @sio.on("pv_messageRead")

@@ -1,3 +1,4 @@
+from typing import Optional
 from datetime import datetime
 from app.database import execute, fetchone
 
@@ -13,7 +14,7 @@ def _format(row: dict) -> dict:
     }
 
 
-async def get(sender_id: str, receiver_id: str) -> dict | None:
+async def get(sender_id: str, receiver_id: str) -> Optional[dict]:
     row = await fetchone(
         """SELECT * FROM private_rooms
            WHERE (SENDER_DEVICE_ID = %s AND RECEIVER_DEVICE_ID = %s)
@@ -39,6 +40,6 @@ async def get_or_create(sender_id: str, receiver_id: str) -> dict:
     return await insert(sender_id, receiver_id)
 
 
-async def get_by_id(room_id: int) -> dict | None:
+async def get_by_id(room_id: int) -> Optional[dict]:
     row = await fetchone("SELECT * FROM private_rooms WHERE ROOM_ID = %s", (room_id,))
     return _format(row)

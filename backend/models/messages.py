@@ -1,3 +1,4 @@
+from typing import Optional
 from datetime import datetime, timedelta
 from app.database import execute, fetchone, fetchall
 
@@ -19,7 +20,7 @@ def _format(row: dict) -> dict:
     }
 
 
-def _compute_dead_time_setting(dead_time: str) -> datetime | None:
+def _compute_dead_time_setting(dead_time: str) -> Optional[datetime]:
     if not dead_time or dead_time == "OFF":
         return None
     now = datetime.now()
@@ -81,7 +82,7 @@ async def get_by_id(message_id: int) -> dict:
     return msg
 
 
-async def get_reply(message_id: int) -> dict | None:
+async def get_reply(message_id: int) -> Optional[dict]:
     row = await fetchone("SELECT * FROM messages WHERE MESSAGE_ID = %s", (message_id,))
     if not row:
         return None

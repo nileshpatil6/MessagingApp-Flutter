@@ -62,10 +62,31 @@ def main():
     ssh.connect(HOST, port=PORT, username=USER, password=PASSWORD, timeout=30)
     print("Connected!\n")
 
-    # 1. Install system deps
-    print("=== Installing system packages ===")
-    run(ssh, "apt-get update -qq")
-    run(ssh, "apt-get install -y -qq python3 python3-pip python3-venv")
+    # 1. Detect OS and install system deps
+    print("=== Detecting OS / installing system packages ===")
+    os_info = run(ssh, "cat /etc/os-release 2>/dev/null | head -4")
+    print(f"    OS: {os_info[:120]}")
+
+    # Disable broken SCL repo leftover from previous attempt
+    run(ssh, ("yum-config-manager --disable centos-sclo-rh centos-sclo-sclo "
+              "2>/dev/null; rm -f /etc/yum.repos.d/CentOS-SCLo*.repo 2>/dev/null; true"))
+
+    # CentOS 7: compile Python 3.9 (no frozen modules issue with GCC 4.8)
+    python3 = "/usr/local/bin/python3.9"
+    py_exists = run(ssh, f"test -x {python3} && echo yes || echo no")
+    if py_exists != "yes":
+        print("    Compiling Python 3.9 from source (~8 min)...")
+        run(ssh, ("yum install -y gcc make openssl-devel bzip2-devel "
+                  "libffi-devel zlib-devel wget 2>&1 | tail -2"))
+        run(ssh, ("wget -q https://www.python.org/ftp/python/3.9.18/Python-3.9.18.tgz "
+                  "-O /tmp/py39.tgz && tar -xzf /tmp/py39.tgz -C /tmp"))
+        run(ssh, ("cd /tmp/Python-3.9.18 && "
+                  "./configure --prefix=/usr/local --with-ensurepip=install 2>&1 | tail -2"))
+        run(ssh, "cd /tmp/Python-3.9.18 && make -j$(nproc) 2>&1 | tail -3")
+        run(ssh, "cd /tmp/Python-3.9.18 && make altinstall 2>&1 | tail -2")
+        run(ssh, "rm -rf /tmp/Python-3.9.18 /tmp/py39.tgz")
+    py_ver = run(ssh, f"{python3} --version 2>&1")
+    print(f"    Using Python: {python3} ({py_ver})")
 
     # 2. Create project dir
     print("\n=== Creating project directory ===")
@@ -86,7 +107,8 @@ def main():
 
     # 5. Create virtualenv and install deps
     print("\n=== Setting up Python venv ===")
-    run(ssh, f"python3 -m venv {REMOTE_DIR}/venv")
+    run(ssh, f"rm -rf {REMOTE_DIR}/venv")
+    run(ssh, f"{python3} -m venv {REMOTE_DIR}/venv")
     run(ssh, f"{REMOTE_DIR}/venv/bin/pip install --upgrade pip -q")
     run(ssh, f"{REMOTE_DIR}/venv/bin/pip install -r {REMOTE_DIR}/requirements.txt -q")
 
@@ -118,14 +140,14 @@ WantedBy=multi-user.target
 
     # 7. Open firewall port 3000
     print("\n=== Opening port 3000 ===")
-    run(ssh, "ufw allow 3000/tcp || true")
+    run(ssh, "ufw allow 3000/tcp 2>/dev/null || firewall-cmd --permanent --add-port=3000/tcp 2>/dev/null && firewall-cmd --reload 2>/dev/null || true")
 
     # 8. Check status
     print("\n=== Service status ===")
     run(ssh, "systemctl status messaging --no-pager -l")
 
     ssh.close()
-    print(f"\n✓ Done! Backend running at http://{HOST}:3000")
+    print(f"\nDone! Backend running at http://{HOST}:3000")
 
 
 if __name__ == "__main__":

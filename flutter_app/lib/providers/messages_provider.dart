@@ -56,11 +56,19 @@ class MessagesNotifier extends StateNotifier<List<RemoteMessage>> {
     if (message.messageId == null) return;
     final deleted = await LocalStorage.getDeletedIds(roomId);
     if (deleted.contains(message.messageId)) return;
-    // avoid duplicates
     final exists = state.any((m) => m.messageId == message.messageId);
     if (!exists) {
       state = [...state, message];
+      // Persist immediately so temp/sending messages survive screen close
+      LocalStorage.saveCachedMessages(
+          roomId, state.map((m) => m.toJson()).toList());
     }
+  }
+
+  /// Force-save current in-memory state (including sending_ temps) to cache.
+  void persistCurrentState() {
+    LocalStorage.saveCachedMessages(
+        roomId, state.map((m) => m.toJson()).toList());
   }
 
   // ── Remove single ─────────────────────────────────────────────────────────
