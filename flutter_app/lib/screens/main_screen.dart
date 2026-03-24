@@ -13,6 +13,7 @@ import '../core/socket_client.dart';
 import '../models/chat_user.dart';
 import '../models/group_data.dart';
 import '../models/remote_message.dart';
+import '../providers/messages_provider.dart';
 import '../providers/users_provider.dart';
 import '../providers/groups_provider.dart';
 import 'call_screen.dart';
@@ -143,7 +144,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
 
       // ── Group message: update group preview, not DMs ──────────────────────
       if (rawContent.startsWith(AppConstants.grpPrefix)) {
-        _handleGroupMessage(rawContent, msg.senderDeviceId!);
+        _handleGroupMessage(rawContent, msg);
         return; // do NOT show in DMs
       }
 
@@ -269,11 +270,24 @@ class _MainScreenState extends ConsumerState<MainScreen>
       );
       ref.read(groupsProvider.notifier).addGroup(group);
       ref.read(groupsProvider.notifier).incrementUnread(groupId);
+
+      // Notification: "GroupName" / "AdminName added you to this group"
+      if (_notificationsEnabled) {
+        final admin = ref.read(usersProvider).users
+            .where((u) => u.deviceId == adminId)
+            .firstOrNull;
+        final adminName = admin?.displayName ?? adminId;
+        NotificationService.instance.showMessage(
+          senderName: name,
+          body: '$adminName added you to this group',
+          senderDeviceId: groupId,
+        );
+      }
     } catch (_) {}
   }
 
-  /// Received [GRP:groupId]:text — update group's last message & unread.
-  void _handleGroupMessage(String rawContent, String senderId) {
+  /// Received [GRP:groupId]:text — store message, update preview, show notification.
+  void _handleGroupMessage(String rawContent, RemoteMessage msg) {
     // Format: [GRP:groupId]:actual text
     try {
       final prefixEnd = rawContent.indexOf(']');
@@ -283,9 +297,54 @@ class _MainScreenState extends ConsumerState<MainScreen>
       final text = prefixEnd + 1 < rawContent.length
           ? rawContent.substring(prefixEnd + 2) // skip ']:' separator
           : '';
+      final displayText = text.isNotEmpty ? text : '📎 Media';
+
+      // Generate stable local ID (same formula as group_conversation_screen)
+      final localId = msg.messageId ??
+          '${msg.senderDeviceId}_${msg.createdAt ?? DateTime.now().millisecondsSinceEpoch}';
+
+      final displayMsg = RemoteMessage(
+        messageId: localId,
+        roomId: groupId,
+        messageContent: displayText,
+        senderDeviceId: msg.senderDeviceId,
+        typeMessage: msg.typeMessage,
+        createdAt: msg.createdAt ?? DateTime.now().toIso8601String(),
+        replyMessageId: msg.replyMessageId,
+        replyMessage: msg.replyMessage,
+        isPin: 0,
+        status: AppConstants.statusSent,
+      );
+
+      // Persist to cache so it shows when user opens the group screen
+      ref.read(messagesProvider(groupId).notifier).addMessage(displayMsg);
+
       ref.read(groupsProvider.notifier).updateLastMessage(
-            groupId, text.isNotEmpty ? text : '📎 Media', DateTime.now());
-      ref.read(groupsProvider.notifier).incrementUnread(groupId);
+            groupId, displayText, DateTime.now());
+
+      // Don't increment unread if the group screen is currently open
+      final activeId = NotificationService.instance.activeConversationDeviceId;
+      if (activeId != groupId) {
+        ref.read(groupsProvider.notifier).incrementUnread(groupId);
+      }
+
+      // Notification: "GroupName" / "SenderName: message"
+      if (_notificationsEnabled) {
+        final groups = ref.read(groupsProvider);
+        final group = groups.where((g) => g.groupId == groupId).firstOrNull;
+        final groupName = group?.groupName ?? 'Group';
+        final sender = ref.read(usersProvider).users
+            .where((u) => u.deviceId == msg.senderDeviceId)
+            .firstOrNull;
+        final senderName = sender?.displayName ?? msg.senderDeviceId ?? 'Someone';
+        if (group == null || !group.isMuted) {
+          NotificationService.instance.showMessage(
+            senderName: groupName,
+            body: '$senderName: $displayText',
+            senderDeviceId: groupId,
+          );
+        }
+      }
     } catch (_) {}
   }
 

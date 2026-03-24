@@ -11,6 +11,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 import '../core/constants.dart';
+import '../core/notification_service.dart';
 import '../core/socket_client.dart';
 import '../models/group_data.dart';
 import '../models/remote_message.dart';
@@ -60,6 +61,8 @@ class _GroupConversationScreenState
 
   Future<void> _init() async {
     _myDeviceId = ref.read(usersProvider).myDeviceId;
+    NotificationService.instance.activeConversationDeviceId =
+        widget.group.groupId;
     _listenToSocket();
     ref.read(groupsProvider.notifier).clearUnread(widget.group.groupId);
   }
@@ -520,6 +523,7 @@ class _GroupConversationScreenState
 
   @override
   void dispose() {
+    NotificationService.instance.activeConversationDeviceId = null;
     SocketClient.instance.off(AppConstants.pvMessageSended, _onMessageSended);
     SocketClient.instance.off(AppConstants.pvMessageDeleted, _onMessageDeleted);
     SocketClient.instance.off(AppConstants.pvMessagesDeleted, _onMessagesDeleted);
