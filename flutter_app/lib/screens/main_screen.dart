@@ -8,6 +8,7 @@ import 'package:timeago/timeago.dart' as timeago;
 
 import '../core/constants.dart';
 import '../core/local_storage.dart';
+import '../core/notification_service.dart';
 import '../core/socket_client.dart';
 import '../models/chat_user.dart';
 import '../models/group_data.dart';
@@ -32,6 +33,8 @@ class _MainScreenState extends ConsumerState<MainScreen>
   String _searchQuery = '';
   late TabController _tabController;
   bool _notificationsEnabled = true;
+  // Dedup: prevent double-count when server sends via room + direct delivery
+  final _seenMessageIds = <String>{};
 
   @override
   void initState() {
@@ -122,26 +125,34 @@ class _MainScreenState extends ConsumerState<MainScreen>
       if (parsed is! Map) return;
       final msg = RemoteMessage.fromJson(Map<String, dynamic>.from(parsed));
       final myId = ref.read(usersProvider).myDeviceId;
-      if (msg.senderDeviceId != null && msg.senderDeviceId != myId) {
-        final content = _previewContent(msg);
-        ref.read(usersProvider.notifier).updateLastMessage(
-              msg.senderDeviceId!,
-              content,
-              DateTime.now(),
-            );
-        // Only increment unread if notifications not globally muted
-        // and user not individually muted
-        if (_notificationsEnabled) {
-          final sender = ref
-              .read(usersProvider)
-              .users
-              .where((u) => u.deviceId == msg.senderDeviceId)
-              .firstOrNull;
-          if (sender == null || !sender.isMuted) {
-            ref
-                .read(usersProvider.notifier)
-                .incrementUnread(msg.senderDeviceId!);
-          }
+      if (msg.senderDeviceId == null || msg.senderDeviceId == myId) return;
+
+      // Deduplicate: server sends via room-broadcast AND direct delivery
+      final msgId = msg.messageId;
+      if (msgId != null) {
+        if (_seenMessageIds.contains(msgId)) return;
+        _seenMessageIds.add(msgId);
+      }
+
+      final content = _previewContent(msg);
+      ref.read(usersProvider.notifier).updateLastMessage(
+            msg.senderDeviceId!,
+            content,
+            DateTime.now(),
+          );
+
+      // Don't increment unread if the conversation with this sender is open
+      final activeId = NotificationService.instance.activeConversationDeviceId;
+      if (activeId == msg.senderDeviceId) return;
+
+      if (_notificationsEnabled) {
+        final sender = ref
+            .read(usersProvider)
+            .users
+            .where((u) => u.deviceId == msg.senderDeviceId)
+            .firstOrNull;
+        if (sender == null || !sender.isMuted) {
+          ref.read(usersProvider.notifier).incrementUnread(msg.senderDeviceId!);
         }
       }
     });

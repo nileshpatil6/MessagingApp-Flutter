@@ -212,7 +212,8 @@ async def on_send_message(sid, data):
         if message.get("_tempId"):
             result["_tempId"] = message["_tempId"]
         payload = json.dumps(result)
-        await sio.emit("pv_messageSended", payload, room=str(room_id))
+        # Confirm to sender (replaces temp bubble); deliver to receiver directly
+        await sio.emit("pv_messageSended", payload, to=sid)
         if receiver_device_id:
             await _deliver_to_device(receiver_device_id, "pv_messageSended", payload)
 

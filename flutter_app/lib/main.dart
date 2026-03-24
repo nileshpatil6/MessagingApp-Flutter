@@ -134,7 +134,24 @@ void _setupGlobalSocketListeners() {
     final senderId = parsed['sender_device_id']?.toString();
     if (senderId == null || senderId == myDeviceId) return;
 
-    // Look up sender name from saved users
+    final msgId = parsed['message_id']?.toString();
+    final roomId = parsed['room_id']?.toString();
+
+    // ── Auto-deliver: inform sender that message reached this device ──────────
+    // This gives the sender a double tick immediately (not just when we open chat)
+    if (msgId != null && roomId != null && roomId.isNotEmpty) {
+      final delivered = await LocalStorage.getDeliveredIds();
+      if (!delivered.contains(msgId)) {
+        await LocalStorage.addDeliveredId(msgId);
+        SocketClient.instance.emit(AppConstants.pvMessageDelivered, {
+          'message_id': msgId,
+          'room_id': roomId,
+          'sender_device_id': senderId,
+        });
+      }
+    }
+
+    // ── Push notification ─────────────────────────────────────────────────────
     final content = parsed['message_content']?.toString() ?? '';
     final typeMessage = int.tryParse(parsed['type_message']?.toString() ?? '0') ?? 0;
     final body = typeMessage == 0
@@ -145,7 +162,6 @@ void _setupGlobalSocketListeners() {
                 ? 'Sent a video'
                 : 'Sent a file';
 
-    // Get display name from saved users
     final prefs = await LocalStorage.getUserPrefs(senderId);
     final senderName = prefs?['display_name']?.toString() ?? 'New message';
 

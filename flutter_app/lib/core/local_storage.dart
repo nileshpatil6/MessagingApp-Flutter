@@ -152,6 +152,20 @@ class LocalStorage {
     await prefs.setString('user_prefs_$deviceId', jsonEncode(data));
   }
 
+  /// Update only lastMessage + lastMessageTime without overwriting other prefs.
+  static Future<void> updateUserLastMessage(
+      String deviceId, String message, DateTime time) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = 'user_prefs_$deviceId';
+    final raw = prefs.getString(key);
+    final data = raw != null
+        ? Map<String, dynamic>.from(jsonDecode(raw))
+        : <String, dynamic>{};
+    data['last_message'] = message;
+    data['last_message_time'] = time.toIso8601String();
+    await prefs.setString(key, jsonEncode(data));
+  }
+
   // ── SELF DESTRUCT ────────────────────────────
 
   static Future<Map<String, dynamic>?> getSelfDestruct() async {

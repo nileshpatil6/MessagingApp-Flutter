@@ -152,6 +152,8 @@ class UsersNotifier extends StateNotifier<UsersState> {
       u.lastMessageTime = time;
       return u;
     });
+    // Persist so time and preview survive app restart
+    LocalStorage.updateUserLastMessage(deviceId, message, time);
   }
 
   // ── Persistence ───────────────────────────────────────────────────────────
@@ -168,6 +170,7 @@ class UsersNotifier extends StateNotifier<UsersState> {
         'custom_name': user.customName,
         'custom_icon': user.customIcon,
         'last_message': user.lastMessage,
+        'last_message_time': user.lastMessageTime?.toIso8601String(),
         'unread_count': user.unreadCount,
       });
     }
@@ -184,6 +187,8 @@ class UsersNotifier extends StateNotifier<UsersState> {
       u.customName = prefs['custom_name'];
       u.customIcon = prefs['custom_icon'];
       u.lastMessage = prefs['last_message'];
+      final timeStr = prefs['last_message_time']?.toString();
+      if (timeStr != null) u.lastMessageTime = DateTime.tryParse(timeStr);
       u.unreadCount = prefs['unread_count'] ?? 0;
       return u;
     });
@@ -215,6 +220,8 @@ class UsersNotifier extends StateNotifier<UsersState> {
       user.customName = prefs['custom_name'];
       user.customIcon = prefs['custom_icon'];
       user.lastMessage = prefs['last_message'];
+      final timeStr = prefs['last_message_time']?.toString();
+      if (timeStr != null) user.lastMessageTime = DateTime.tryParse(timeStr);
       user.unreadCount = prefs['unread_count'] ?? 0;
       persisted.add(user);
     }
