@@ -18,7 +18,6 @@ import '../models/chat_user.dart';
 import '../models/remote_message.dart';
 import '../providers/messages_provider.dart';
 import '../providers/users_provider.dart';
-import 'call_screen.dart';
 import 'forward_screen.dart';
 import 'photo_view_screen.dart';
 import 'pin_messages_screen.dart';
@@ -819,17 +818,6 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
               }
             });
           },
-        ),
-        IconButton(
-          icon: const Icon(Icons.videocam_outlined),
-          tooltip: 'Video call',
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) =>
-                  CallScreen(user: widget.user, isCaller: true),
-            ),
-          ),
         ),
         IconButton(
           icon: const Icon(Icons.push_pin_outlined),

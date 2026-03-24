@@ -36,13 +36,20 @@ class _GroupConversationScreenState
     extends ConsumerState<GroupConversationScreen> {
   final _textController = TextEditingController();
   final _scrollController = ScrollController();
+  final _searchController = TextEditingController();
   final _imagePicker = ImagePicker();
 
   String _myDeviceId = '';
   bool _showEmoji = false;
+  bool _isSearching = false;
+  String _searchQuery = '';
   bool _isSelectionMode = false;
   final Set<String> _selectedIds = {};
   RemoteMessage? _replyTo;
+
+  // Floating context menu state (no blur overlay — LINE style)
+  RemoteMessage? _contextMsg;
+  Offset? _contextMenuOffset;
 
   // Specific handler references for clean dispose (don't kill global listeners)
   late final void Function(dynamic) _onMessageSended;
@@ -529,6 +536,7 @@ class _GroupConversationScreenState
     SocketClient.instance.off(AppConstants.pvMessagesDeleted, _onMessagesDeleted);
     SocketClient.instance.off(AppConstants.pvMessagePinList, _onMessagePinList);
     _textController.dispose();
+    _searchController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -537,7 +545,7 @@ class _GroupConversationScreenState
 
   @override
   Widget build(BuildContext context) {
-    final messages =
+    final allMessages =
         ref.watch(messagesProvider(widget.group.groupId));
     final colorScheme = Theme.of(context).colorScheme;
     // Watch group state for name updates
@@ -547,38 +555,221 @@ class _GroupConversationScreenState
       orElse: () => widget.group,
     );
 
+    final messages = _searchQuery.isEmpty
+        ? allMessages
+        : allMessages
+            .where((m) =>
+                m.messageContent
+                    ?.toLowerCase()
+                    .contains(_searchQuery.toLowerCase()) ??
+                false)
+            .toList();
+
     return Scaffold(
       appBar: _isSelectionMode
-          ? _buildSelectionAppBar(colorScheme, messages)
+          ? _buildSelectionAppBar(colorScheme, allMessages)
           : _buildNormalAppBar(currentGroup, colorScheme),
       body: GestureDetector(
         onTap: () {
           if (_showEmoji) setState(() => _showEmoji = false);
+          if (_contextMsg != null) setState(() { _contextMsg = null; _contextMenuOffset = null; });
         },
-        child: Column(
+        child: Stack(
           children: [
-            Expanded(
-              child: ListView.builder(
-                controller: _scrollController,
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 8, vertical: 8),
-                itemCount: messages.length,
-                itemBuilder: (_, i) =>
-                    _buildMessageBubble(messages[i], colorScheme),
-              ),
-            ),
-            if (_replyTo != null) _buildReplyPreview(colorScheme),
-            _buildInputBar(colorScheme),
-            if (_showEmoji)
-              SizedBox(
-                height: 250,
-                child: EmojiPicker(
-                  textEditingController: _textController,
-                  config: const Config(height: 250),
+            Column(
+              children: [
+                if (_isSearching) _buildSearchBar(colorScheme),
+                Expanded(
+                  child: ListView.builder(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 8),
+                    itemCount: messages.length,
+                    itemBuilder: (_, i) =>
+                        _buildMessageBubble(messages[i], colorScheme),
+                  ),
                 ),
-              ),
+                if (_replyTo != null) _buildReplyPreview(colorScheme),
+                _buildInputBar(colorScheme),
+                if (_showEmoji)
+                  SizedBox(
+                    height: 250,
+                    child: EmojiPicker(
+                      textEditingController: _textController,
+                      config: const Config(height: 250),
+                    ),
+                  ),
+              ],
+            ),
+            // LINE-style floating action overlay — no blur, same z-level
+            if (_contextMsg != null && _contextMenuOffset != null)
+              _buildContextOverlay(_contextMsg!, _contextMenuOffset!, colorScheme),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildSearchBar(ColorScheme colorScheme) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+      child: TextField(
+        controller: _searchController,
+        autofocus: true,
+        onChanged: (v) => setState(() => _searchQuery = v),
+        decoration: InputDecoration(
+          hintText: 'Search messages…',
+          prefixIcon: const Icon(Icons.search),
+          suffixIcon: _searchQuery.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.clear),
+                  onPressed: () {
+                    _searchController.clear();
+                    setState(() => _searchQuery = '');
+                  },
+                )
+              : null,
+          isDense: true,
+          filled: true,
+          fillColor: colorScheme.surfaceContainerHighest,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(24),
+            borderSide: BorderSide.none,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Floating pill of action buttons — appears near long-pressed message.
+  /// No background blur, no modal barrier.
+  Widget _buildContextOverlay(
+      RemoteMessage msg, Offset tapPos, ColorScheme colorScheme) {
+    final screenH = MediaQuery.of(context).size.height;
+    // Position the pill above the tap if in bottom half, below if in top half
+    final top = tapPos.dy > screenH / 2
+        ? tapPos.dy - 110
+        : tapPos.dy + 20;
+    final clampedTop = top.clamp(60.0, screenH - 80.0);
+
+    return Positioned.fill(
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: () => setState(() { _contextMsg = null; _contextMenuOffset = null; }),
+        child: Stack(
+          children: [
+            Positioned(
+              top: clampedTop,
+              left: 12,
+              right: 12,
+              child: GestureDetector(
+                onTap: () {}, // absorb taps so overlay doesn't self-dismiss
+                child: Material(
+                  elevation: 6,
+                  borderRadius: BorderRadius.circular(32),
+                  color: colorScheme.surfaceContainerHighest,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        _overlayBtn(
+                          icon: Icons.reply,
+                          label: 'Reply',
+                          color: colorScheme.onSurface,
+                          onTap: () {
+                            setState(() {
+                              _contextMsg = null;
+                              _contextMenuOffset = null;
+                              _replyTo = msg;
+                            });
+                          },
+                        ),
+                        _overlayBtn(
+                          icon: Icons.forward,
+                          label: 'Forward',
+                          color: colorScheme.onSurface,
+                          onTap: () {
+                            setState(() {
+                              _contextMsg = null;
+                              _contextMenuOffset = null;
+                              // Enter multi-select with this message selected
+                              _isSelectionMode = true;
+                              if (msg.messageId != null) _selectedIds.add(msg.messageId!);
+                            });
+                          },
+                        ),
+                        if (msg.messageContent != null && msg.typeMessage == 0)
+                          _overlayBtn(
+                            icon: Icons.copy_outlined,
+                            label: 'Copy',
+                            color: colorScheme.onSurface,
+                            onTap: () {
+                              setState(() { _contextMsg = null; _contextMenuOffset = null; });
+                              Clipboard.setData(ClipboardData(text: msg.messageContent!));
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Copied'), duration: Duration(seconds: 1)),
+                              );
+                            },
+                          ),
+                        _overlayBtn(
+                          icon: msg.isPin == 1 ? Icons.push_pin : Icons.push_pin_outlined,
+                          label: msg.isPin == 1 ? 'Unpin' : 'Pin',
+                          color: msg.isPin == 1 ? Colors.orange : colorScheme.onSurface,
+                          onTap: () {
+                            setState(() { _contextMsg = null; _contextMenuOffset = null; });
+                            _togglePin(msg);
+                          },
+                        ),
+                        _overlayBtn(
+                          icon: Icons.delete_outline,
+                          label: 'Delete',
+                          color: Colors.red,
+                          onTap: () {
+                            setState(() {
+                              _contextMsg = null;
+                              _contextMenuOffset = null;
+                              // Enter multi-select with this message selected
+                              _isSelectionMode = true;
+                              if (msg.messageId != null) _selectedIds.add(msg.messageId!);
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _overlayBtn({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: color, size: 22),
+          ),
+          const SizedBox(height: 2),
+          Text(label, style: TextStyle(fontSize: 10, color: color)),
+        ],
       ),
     );
   }
@@ -587,6 +778,7 @@ class _GroupConversationScreenState
       GroupData group, ColorScheme colorScheme) {
     return AppBar(
       backgroundColor: colorScheme.surface,
+      titleSpacing: 0,
       title: GestureDetector(
         onTap: () => _showMemberList(context, group),
         child: Row(
@@ -603,42 +795,62 @@ class _GroupConversationScreenState
                   : null,
             ),
             const SizedBox(width: 8),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(group.groupName,
-                    style: const TextStyle(fontSize: 16)),
-                Text(
-                  '${group.memberIds.length} members',
-                  style: TextStyle(
-                      fontSize: 12, color: colorScheme.outline),
-                ),
-              ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    group.groupName,
+                    style: const TextStyle(fontSize: 16),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    '${group.memberIds.length} members',
+                    style: TextStyle(
+                        fontSize: 12, color: colorScheme.outline),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
       ),
       actions: [
         IconButton(
-          icon: const Icon(Icons.push_pin_outlined),
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) =>
-                  PinMessagesScreen(roomId: widget.group.groupId),
-            ),
-          ),
+          icon: Icon(_isSearching ? Icons.search_off : Icons.search),
+          tooltip: 'Search messages',
+          onPressed: () {
+            setState(() {
+              _isSearching = !_isSearching;
+              if (!_isSearching) {
+                _searchController.clear();
+                _searchQuery = '';
+              }
+            });
+          },
         ),
         PopupMenuButton<String>(
+          icon: const Icon(Icons.menu),
           onSelected: (val) {
             if (val == 'leave') _leaveGroup();
             if (val == 'members') _showMemberList(context, group);
             if (val == 'rename') _renameGroup(context, group);
             if (val == 'delete') _deleteGroup(context);
+            if (val == 'pins') {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) =>
+                      PinMessagesScreen(roomId: widget.group.groupId),
+                ),
+              );
+            }
           },
           itemBuilder: (_) => [
             const PopupMenuItem(
                 value: 'members', child: Text('View members')),
+            const PopupMenuItem(
+                value: 'pins', child: Text('Pinned messages')),
             const PopupMenuItem(
                 value: 'rename', child: Text('Rename group')),
             const PopupMenuItem(
@@ -666,6 +878,8 @@ class _GroupConversationScreenState
           setState(() {
             _isSelectionMode = false;
             _selectedIds.clear();
+            _contextMsg = null;
+            _contextMenuOffset = null;
           });
         },
       ),
@@ -722,16 +936,20 @@ class _GroupConversationScreenState
     }
 
     return GestureDetector(
-      onLongPress: () {
-        if (!_isSelectionMode) {
-          setState(() {
-            _isSelectionMode = true;
-            if (msg.messageId != null) _selectedIds.add(msg.messageId!);
-          });
-        }
-        _showMessageContextMenu(context, msg);
+      onLongPressStart: (details) {
+        setState(() {
+          _contextMsg = msg;
+          _contextMenuOffset = details.globalPosition;
+          // Enter selection mode with this message pre-selected
+          _isSelectionMode = true;
+          if (msg.messageId != null) _selectedIds.add(msg.messageId!);
+        });
       },
       onTap: () {
+        if (_contextMsg != null) {
+          setState(() { _contextMsg = null; _contextMenuOffset = null; });
+          return;
+        }
         if (_isSelectionMode && msg.messageId != null) {
           setState(() {
             if (_selectedIds.contains(msg.messageId)) {
@@ -1137,80 +1355,6 @@ class _GroupConversationScreenState
               onTap: () {
                 Navigator.pop(context);
                 _pickFile();
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showMessageContextMenu(BuildContext context, RemoteMessage msg) {
-    showModalBottomSheet(
-      context: context,
-      builder: (_) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40,
-              height: 4,
-              margin: const EdgeInsets.symmetric(vertical: 8),
-              decoration: BoxDecoration(
-                  color: Colors.grey[300],
-                  borderRadius: BorderRadius.circular(2)),
-            ),
-            ListTile(
-              leading: const Icon(Icons.reply),
-              title: const Text('Reply'),
-              onTap: () {
-                Navigator.pop(context);
-                setState(() => _replyTo = msg);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.forward),
-              title: const Text('Forward'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => ForwardScreen(messages: [msg]),
-                  ),
-                );
-              },
-            ),
-            ListTile(
-              leading: Icon(msg.isPin == 1
-                  ? Icons.push_pin
-                  : Icons.push_pin_outlined),
-              title: Text(msg.isPin == 1 ? 'Unpin' : 'Pin'),
-              onTap: () {
-                Navigator.pop(context);
-                _togglePin(msg);
-              },
-            ),
-            if (msg.messageContent != null && msg.typeMessage == 0)
-              ListTile(
-                leading: const Icon(Icons.copy),
-                title: const Text('Copy'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Clipboard.setData(
-                      ClipboardData(text: msg.messageContent!));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Copied')),
-                  );
-                },
-              ),
-            ListTile(
-              leading: const Icon(Icons.delete_outline, color: Colors.red),
-              title: const Text('Delete',
-                  style: TextStyle(color: Colors.red)),
-              onTap: () {
-                Navigator.pop(context);
-                _deleteMessage(msg);
               },
             ),
           ],
