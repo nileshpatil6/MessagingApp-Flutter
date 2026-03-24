@@ -127,13 +127,34 @@ class _MainScreenState extends ConsumerState<MainScreen>
       final myId = ref.read(usersProvider).myDeviceId;
       if (msg.senderDeviceId == null || msg.senderDeviceId == myId) return;
 
-      // Deduplicate: server sends via room-broadcast AND direct delivery
-      final msgId = msg.messageId;
-      if (msgId != null) {
-        if (_seenMessageIds.contains(msgId)) return;
-        _seenMessageIds.add(msgId);
+      // Deduplicate: prevent double-count from any duplicate events
+      final msgId = msg.messageId?.toString();
+      final rawContent = msg.messageContent ?? '';
+      // Use content hash for group msgs (they have null message_id)
+      final dedupeKey = msgId ?? '${msg.senderDeviceId}_$rawContent';
+      if (_seenMessageIds.contains(dedupeKey)) return;
+      _seenMessageIds.add(dedupeKey);
+
+      // ── Group invite: add group to this user's groups list ────────────────
+      if (rawContent.startsWith(AppConstants.grpInvPrefix)) {
+        _handleGroupInvite(rawContent);
+        return; // do NOT show in DMs
       }
 
+      // ── Group message: update group preview, not DMs ──────────────────────
+      if (rawContent.startsWith(AppConstants.grpPrefix)) {
+        _handleGroupMessage(rawContent, msg.senderDeviceId!);
+        return; // do NOT show in DMs
+      }
+
+      // ── Other group system messages (leave/name/icon) ─────────────────────
+      if (rawContent.startsWith(AppConstants.grpLeavePrefix) ||
+          rawContent.startsWith(AppConstants.grpNamePrefix) ||
+          rawContent.startsWith(AppConstants.grpIconPrefix)) {
+        return; // handled by group_conversation_screen only
+      }
+
+      // ── DM message ────────────────────────────────────────────────────────
       final content = _previewContent(msg);
       ref.read(usersProvider.notifier).updateLastMessage(
             msg.senderDeviceId!,
@@ -141,7 +162,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
             DateTime.now(),
           );
 
-      // Don't increment unread if the conversation with this sender is open
+      // Don't increment unread if that conversation is already open
       final activeId = NotificationService.instance.activeConversationDeviceId;
       if (activeId == msg.senderDeviceId) return;
 
@@ -222,6 +243,50 @@ class _MainScreenState extends ConsumerState<MainScreen>
     socket.on(AppConstants.ping, (_) {
       socket.emit(AppConstants.pvPong, {});
     });
+  }
+
+  /// Received [GRP_INV:groupId:name:adminId:member1,member2,...] — add group.
+  void _handleGroupInvite(String content) {
+    // Format: [GRP_INV:groupId:name:adminId:member1,member2,...]
+    try {
+      final inner = content.substring(
+          AppConstants.grpInvPrefix.length, content.length - 1);
+      final parts = inner.split(':');
+      if (parts.length < 2) return;
+      final groupId = parts[0];
+      final name = parts[1];
+      final adminId = parts.length > 2 ? parts[2] : '';
+      final memberIds = parts.length > 3
+          ? parts[3].split(',').where((s) => s.isNotEmpty).toList()
+          : <String>[ref.read(usersProvider).myDeviceId];
+      if (groupId.isEmpty || name.isEmpty) return;
+      final group = GroupData(
+        groupId: groupId,
+        groupName: name,
+        adminId: adminId,
+        memberIds: memberIds,
+        createdAt: DateTime.now().millisecondsSinceEpoch,
+      );
+      ref.read(groupsProvider.notifier).addGroup(group);
+      ref.read(groupsProvider.notifier).incrementUnread(groupId);
+    } catch (_) {}
+  }
+
+  /// Received [GRP:groupId]:text — update group's last message & unread.
+  void _handleGroupMessage(String rawContent, String senderId) {
+    // Format: [GRP:groupId]:actual text
+    try {
+      final prefixEnd = rawContent.indexOf(']');
+      if (prefixEnd < 0) return;
+      final groupId = rawContent.substring(
+          AppConstants.grpPrefix.length, prefixEnd);
+      final text = prefixEnd + 1 < rawContent.length
+          ? rawContent.substring(prefixEnd + 2) // skip ']:' separator
+          : '';
+      ref.read(groupsProvider.notifier).updateLastMessage(
+            groupId, text.isNotEmpty ? text : '📎 Media', DateTime.now());
+      ref.read(groupsProvider.notifier).incrementUnread(groupId);
+    } catch (_) {}
   }
 
   String _previewContent(RemoteMessage msg) {

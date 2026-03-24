@@ -73,9 +73,11 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
     // Save locally
     await ref.read(groupsProvider.notifier).addGroup(group);
 
-    // Send invite message to each selected member
+    // Send invite to each selected member.
+    // Format: [GRP_INV:groupId:name:adminId:member1,member2,...]
+    final memberList = memberIds.join(',');
     final inviteContent =
-        '${AppConstants.grpInvPrefix}$groupId:$name]';
+        '${AppConstants.grpInvPrefix}$groupId:$name:$myId:$memberList]';
     for (final memberId in _selectedDeviceIds) {
       SocketClient.instance.emit(AppConstants.pvSendMessage, {
         'room_id': groupId,
