@@ -287,7 +287,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
   }
 
   /// Received [GRP:groupId]:text — store message, update preview, show notification.
-  void _handleGroupMessage(String rawContent, RemoteMessage msg) {
+  Future<void> _handleGroupMessage(String rawContent, RemoteMessage msg) async {
     // Format: [GRP:groupId]:actual text
     try {
       final prefixEnd = rawContent.indexOf(']');
@@ -316,8 +316,8 @@ class _MainScreenState extends ConsumerState<MainScreen>
         status: AppConstants.statusSent,
       );
 
-      // Persist to cache so it shows when user opens the group screen
-      ref.read(messagesProvider(groupId).notifier).addMessage(displayMsg);
+      // Await addMessage so message is durably cached before notification fires
+      await ref.read(messagesProvider(groupId).notifier).addMessage(displayMsg);
 
       ref.read(groupsProvider.notifier).updateLastMessage(
             groupId, displayText, DateTime.now());
@@ -330,9 +330,21 @@ class _MainScreenState extends ConsumerState<MainScreen>
 
       // Notification: "GroupName" / "SenderName: message"
       if (_notificationsEnabled) {
+        // Try Riverpod state first; fall back to SharedPreferences so we always
+        // have the real group name even if state hasn't loaded yet on startup
         final groups = ref.read(groupsProvider);
-        final group = groups.where((g) => g.groupId == groupId).firstOrNull;
-        final groupName = group?.groupName ?? 'Group';
+        GroupData? group = groups.where((g) => g.groupId == groupId).firstOrNull;
+        String groupName = group?.groupName ?? '';
+        if (groupName.isEmpty) {
+          final rawGroups = await LocalStorage.getGroups();
+          final stored = rawGroups
+              .map((j) => GroupData.fromJson(j))
+              .where((g) => g.groupId == groupId)
+              .firstOrNull;
+          groupName = stored?.groupName ?? 'Group';
+          group ??= stored;
+        }
+
         final sender = ref.read(usersProvider).users
             .where((u) => u.deviceId == msg.senderDeviceId)
             .firstOrNull;

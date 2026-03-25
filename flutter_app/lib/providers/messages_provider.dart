@@ -35,19 +35,35 @@ class MessagesNotifier extends StateNotifier<List<RemoteMessage>> {
         roomId, filtered.map((m) => m.toJson()).toList());
   }
 
-  /// Show cached messages instantly before the server responds.
+  /// Show cached messages — always merges with current in-memory state so that
+  /// messages added via addMessage() while the screen was closed are never lost.
   Future<void> loadCached() async {
-    if (state.isNotEmpty) return; // already have data, don't overwrite
     final raw = await LocalStorage.loadCachedMessages(roomId);
     if (raw.isEmpty) return;
     final savedStatuses = await LocalStorage.getMessageStatuses(roomId);
-    final messages = raw.map((e) {
+    final cached = raw.map((e) {
       final m = RemoteMessage.fromJson(e);
       final saved = savedStatuses[m.messageId ?? ''];
       if (saved != null && saved > m.status) return m.copyWith(status: saved);
       return m;
     }).toList();
-    state = messages;
+
+    if (state.isEmpty) {
+      state = cached;
+      return;
+    }
+
+    // Merge: add cached messages that aren't already in state, then sort by time
+    final existingIds = {for (final m in state) m.messageId};
+    final missing = cached.where((m) => !existingIds.contains(m.messageId)).toList();
+    if (missing.isEmpty) return;
+    final merged = [...missing, ...state];
+    merged.sort((a, b) {
+      final ta = DateTime.tryParse(a.createdAt ?? '') ?? DateTime(0);
+      final tb = DateTime.tryParse(b.createdAt ?? '') ?? DateTime(0);
+      return ta.compareTo(tb);
+    });
+    state = merged;
   }
 
   // ── Add ───────────────────────────────────────────────────────────────────
@@ -59,8 +75,9 @@ class MessagesNotifier extends StateNotifier<List<RemoteMessage>> {
     final exists = state.any((m) => m.messageId == message.messageId);
     if (!exists) {
       state = [...state, message];
-      // Persist immediately so temp/sending messages survive screen close
-      LocalStorage.saveCachedMessages(
+      // Await the write so the message is durable before we return —
+      // prevents loadCached() from missing it if the screen opens immediately after
+      await LocalStorage.saveCachedMessages(
           roomId, state.map((m) => m.toJson()).toList());
     }
   }
