@@ -56,6 +56,8 @@ class _GroupConversationScreenState
   late final void Function(dynamic) _onMessageDeleted;
   late final void Function(dynamic) _onMessagesDeleted;
   late final void Function(dynamic) _onMessagePinList;
+  late final void Function(dynamic) _onMessageDelivered;
+  late final void Function(dynamic) _onMessageRead;
 
   String get _roomId =>
       '${AppConstants.grpPrefix}${widget.group.groupId}]';
@@ -76,7 +78,25 @@ class _GroupConversationScreenState
         .loadCached();
     _listenToSocket();
     ref.read(groupsProvider.notifier).clearUnread(widget.group.groupId);
+
+    // Tell senders that I've read their messages (→ double blue tick for them)
+    _markAllReceivedAsRead();
     _scrollToBottom();
+  }
+
+  /// Emit pvMessageRead for every received message so senders get blue ticks.
+  void _markAllReceivedAsRead() {
+    final messages =
+        ref.read(messagesProvider(widget.group.groupId));
+    for (final msg in messages) {
+      if (msg.senderDeviceId == _myDeviceId) continue;
+      if (msg.messageId == null) continue;
+      SocketClient.instance.emit(AppConstants.pvMessageRead, {
+        'message_id': msg.messageId,
+        'room_id': widget.group.groupId,
+        'sender_device_id': msg.senderDeviceId,
+      });
+    }
   }
 
   static dynamic _d(dynamic raw) {
@@ -184,6 +204,33 @@ class _GroupConversationScreenState
       ref.read(messagesProvider(widget.group.groupId).notifier).applyPinList(pinned);
     };
     socket.on(AppConstants.pvMessagePinList, _onMessagePinList);
+
+    // ── Delivery / Read acks — same as DM chat ─────────────────────────────
+    _onMessageDelivered = (data) {
+      if (data == null) return;
+      final p = _d(data);
+      if (p is! Map) return;
+      final msgId = p['message_id']?.toString();
+      final roomId = p['room_id']?.toString() ?? '';
+      if (msgId == null || roomId != widget.group.groupId) return;
+      ref
+          .read(messagesProvider(widget.group.groupId).notifier)
+          .updateMessageStatus(msgId, AppConstants.statusDelivered);
+    };
+    socket.on(AppConstants.pvMessageDelivered, _onMessageDelivered);
+
+    _onMessageRead = (data) {
+      if (data == null) return;
+      final p = _d(data);
+      if (p is! Map) return;
+      final msgId = p['message_id']?.toString();
+      final roomId = p['room_id']?.toString() ?? '';
+      if (msgId == null || roomId != widget.group.groupId) return;
+      ref
+          .read(messagesProvider(widget.group.groupId).notifier)
+          .updateMessageStatus(msgId, AppConstants.statusRead);
+    };
+    socket.on(AppConstants.pvMessageRead, _onMessageRead);
   }
 
   void _handleGroupNameChange(String content) {
@@ -222,7 +269,11 @@ class _GroupConversationScreenState
     final myId = _myDeviceId;
     final fullContent = '$_roomId:$content';
 
-    // Send to each member individually
+    // Send to each member individually.
+    // Include created_at so receivers build the same senderDeviceId_createdAt
+    // local ID we store — enabling delivery/read acks to match our message.
+    final createdAt = DateTime.now().toIso8601String();
+    final localId = '${myId}_$createdAt';
     for (final memberId in widget.group.memberIds) {
       if (memberId == myId) continue;
       final payload = {
@@ -231,23 +282,25 @@ class _GroupConversationScreenState
         'type_message': type,
         'sender_device_id': myId,
         'receiver_device_id': memberId,
+        'created_at': createdAt,
         if (_replyTo?.messageId != null)
           'reply_message_id': _replyTo!.messageId,
       };
       SocketClient.instance.emit(AppConstants.pvSendMessage, payload);
     }
 
-    // Add locally immediately
+    // Add locally immediately.
+    // Reuse the same createdAt/localId computed above for consistency.
     final localMsg = RemoteMessage(
-      messageId:
-          DateTime.now().millisecondsSinceEpoch.toString(),
+      messageId: localId,
       roomId: widget.group.groupId,
       messageContent: content,
       senderDeviceId: myId,
       typeMessage: type,
-      createdAt: DateTime.now().toIso8601String(),
+      createdAt: createdAt,
       replyMessage: _replyTo,
       isPin: 0,
+      status: AppConstants.statusSent,
     );
     ref
         .read(messagesProvider(widget.group.groupId).notifier)
@@ -540,6 +593,8 @@ class _GroupConversationScreenState
     SocketClient.instance.off(AppConstants.pvMessageDeleted, _onMessageDeleted);
     SocketClient.instance.off(AppConstants.pvMessagesDeleted, _onMessagesDeleted);
     SocketClient.instance.off(AppConstants.pvMessagePinList, _onMessagePinList);
+    SocketClient.instance.off(AppConstants.pvMessageDelivered, _onMessageDelivered);
+    SocketClient.instance.off(AppConstants.pvMessageRead, _onMessageRead);
     _textController.dispose();
     _searchController.dispose();
     _scrollController.dispose();
@@ -1087,7 +1142,7 @@ class _GroupConversationScreenState
       case AppConstants.statusDelivered:
         return Icon(Icons.done_all, size: 14, color: colorScheme.outline);
       case AppConstants.statusRead:
-        return Icon(Icons.done_all, size: 14, color: Colors.blue);
+        return const Icon(Icons.done_all, size: 14, color: Colors.blue);
       default:
         return Icon(Icons.done, size: 14, color: colorScheme.outline);
     }

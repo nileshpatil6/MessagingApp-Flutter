@@ -138,21 +138,31 @@ void _setupGlobalSocketListeners() {
     final roomId = parsed['room_id']?.toString();
 
     // ── Auto-deliver: inform sender that message reached this device ──────────
-    // This gives the sender a double tick immediately (not just when we open chat)
-    if (msgId != null && roomId != null && roomId.isNotEmpty) {
-      final delivered = await LocalStorage.getDeliveredIds();
-      if (!delivered.contains(msgId)) {
-        await LocalStorage.addDeliveredId(msgId);
-        SocketClient.instance.emit(AppConstants.pvMessageDelivered, {
-          'message_id': msgId,
-          'room_id': roomId,
-          'sender_device_id': senderId,
-        });
+    final content = parsed['message_content']?.toString() ?? '';
+    final isGroup = content.startsWith('[GRP:');
+
+    if (roomId != null && roomId.isNotEmpty) {
+      // For group messages: message_id is null (not stored in DB).
+      // Use senderDeviceId_createdAt as the ack ID — same formula the receiver
+      // stores the message under, and the sender also stores under the same key.
+      final ackId = isGroup
+          ? '${senderId}_${parsed['created_at']}'
+          : msgId;
+
+      if (ackId != null) {
+        final delivered = await LocalStorage.getDeliveredIds();
+        if (!delivered.contains(ackId)) {
+          await LocalStorage.addDeliveredId(ackId);
+          SocketClient.instance.emit(AppConstants.pvMessageDelivered, {
+            'message_id': ackId,
+            'room_id': roomId,
+            'sender_device_id': senderId,
+          });
+        }
       }
     }
 
     // ── Push notification (DMs only — group notifications handled by main_screen) ──
-    final content = parsed['message_content']?.toString() ?? '';
     // Skip group messages — main_screen._handleGroupMessage shows a clean notification
     if (content.startsWith('[GRP:') ||
         content.startsWith('[GRP_INV:') ||
