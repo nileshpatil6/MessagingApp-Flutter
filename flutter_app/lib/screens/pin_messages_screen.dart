@@ -4,7 +4,9 @@ import 'package:intl/intl.dart';
 
 import '../core/constants.dart';
 import '../core/socket_client.dart';
+import '../l10n/app_strings.dart';
 import '../models/remote_message.dart';
+import '../providers/locale_provider.dart';
 import '../providers/messages_provider.dart';
 import 'photo_view_screen.dart';
 import 'video_player_screen.dart';
@@ -16,6 +18,7 @@ class PinMessagesScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final s = AppStrings(ref.watch(localeProvider));
     final messages = ref.watch(messagesProvider(roomId));
     final pinned = messages.where((m) => m.isPin == 1).toList()
       ..sort((a, b) {
@@ -30,8 +33,8 @@ class PinMessagesScreen extends ConsumerWidget {
       appBar: AppBar(
         title: Text(
           pinned.isEmpty
-              ? 'Pinned Messages'
-              : 'Pinned Messages (${pinned.length})',
+              ? s.pinnedMessagesTitle
+              : s.pinnedMessagesCount(pinned.length),
         ),
       ),
       body: pinned.isEmpty
@@ -42,10 +45,10 @@ class PinMessagesScreen extends ConsumerWidget {
                   Icon(Icons.push_pin_outlined,
                       size: 64, color: colorScheme.outlineVariant),
                   const SizedBox(height: 16),
-                  const Text('No pinned messages'),
+                  Text(s.noPinnedMessages),
                   const SizedBox(height: 8),
                   Text(
-                    'Long-press a message and tap Pin\nto add it here',
+                    s.pinnedInstructions,
                     textAlign: TextAlign.center,
                     style: TextStyle(color: colorScheme.outline),
                   ),
@@ -57,7 +60,7 @@ class PinMessagesScreen extends ConsumerWidget {
               itemCount: pinned.length,
               separatorBuilder: (_, __) => const SizedBox(height: 12),
               itemBuilder: (_, i) =>
-                  _buildPinnedCard(context, ref, pinned[i], colorScheme),
+                  _buildPinnedCard(context, ref, pinned[i], colorScheme, s),
             ),
     );
   }
@@ -67,6 +70,7 @@ class PinMessagesScreen extends ConsumerWidget {
     WidgetRef ref,
     RemoteMessage msg,
     ColorScheme colorScheme,
+    AppStrings s,
   ) {
     return Card(
       elevation: 0,
@@ -89,7 +93,7 @@ class PinMessagesScreen extends ConsumerWidget {
                 const Icon(Icons.push_pin, size: 16, color: Colors.orange),
                 const SizedBox(width: 4),
                 Text(
-                  'Pinned',
+                  s.pinnedLabel,
                   style: TextStyle(
                     fontSize: 12,
                     color: Colors.orange[700],
@@ -108,7 +112,7 @@ class PinMessagesScreen extends ConsumerWidget {
                 const SizedBox(width: 8),
                 // Unpin button
                 InkWell(
-                  onTap: () => _unpinMessage(context, ref, msg),
+                  onTap: () => _unpinMessage(context, ref, msg, s),
                   borderRadius: BorderRadius.circular(20),
                   child: Padding(
                     padding: const EdgeInsets.all(4),
@@ -123,7 +127,7 @@ class PinMessagesScreen extends ConsumerWidget {
             ),
             const Divider(height: 12),
             // Message content
-            _buildContent(context, msg, colorScheme),
+            _buildContent(context, msg, colorScheme, s),
             // Timestamp
             const SizedBox(height: 6),
             Text(
@@ -137,7 +141,7 @@ class PinMessagesScreen extends ConsumerWidget {
   }
 
   Widget _buildContent(
-      BuildContext context, RemoteMessage msg, ColorScheme colorScheme) {
+      BuildContext context, RemoteMessage msg, ColorScheme colorScheme, AppStrings s) {
     switch (msg.typeMessage) {
       case AppConstants.typeImage:
         return GestureDetector(
@@ -183,11 +187,11 @@ class PinMessagesScreen extends ConsumerWidget {
               ),
               const Icon(Icons.play_circle_filled,
                   size: 48, color: Colors.white),
-              const Positioned(
+              Positioned(
                 bottom: 8,
                 left: 8,
-                child: Text('Video',
-                    style: TextStyle(color: Colors.white, fontSize: 12)),
+                child: Text(s.video,
+                    style: const TextStyle(color: Colors.white, fontSize: 12)),
               ),
             ],
           ),
@@ -201,7 +205,7 @@ class PinMessagesScreen extends ConsumerWidget {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                msg.messageContent?.split('/').last ?? 'File',
+                msg.messageContent?.split('/').last ?? s.file,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 14),
@@ -219,16 +223,16 @@ class PinMessagesScreen extends ConsumerWidget {
   }
 
   void _unpinMessage(
-      BuildContext context, WidgetRef ref, RemoteMessage msg) {
+      BuildContext context, WidgetRef ref, RemoteMessage msg, AppStrings s) {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Unpin message'),
-        content: const Text('Remove this message from pinned?'),
+        title: Text(s.unpinMessage),
+        content: Text(s.removeFromPinned),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
+              child: Text(s.cancel)),
           FilledButton(
             onPressed: () {
               Navigator.pop(context);
@@ -241,7 +245,7 @@ class PinMessagesScreen extends ConsumerWidget {
                   .read(messagesProvider(roomId).notifier)
                   .pinMessage(msg.messageId!, false);
             },
-            child: const Text('Unpin'),
+            child: Text(s.unpin),
           ),
         ],
       ),

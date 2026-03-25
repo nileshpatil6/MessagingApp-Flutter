@@ -247,6 +247,19 @@ class LocalStorage {
     return decoded.map((e) => Map<String, dynamic>.from(e)).toList();
   }
 
+  // ── LANGUAGE ──────────────────────────────────
+
+  /// Returns true if Japanese is selected (default).
+  static Future<bool> getIsJapanese() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('is_japanese') ?? true;
+  }
+
+  static Future<void> setIsJapanese(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('is_japanese', value);
+  }
+
   // ── RESET ─────────────────────────────────────
 
   static Future<void> reset() async {

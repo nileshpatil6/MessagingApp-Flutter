@@ -23,6 +23,8 @@ import 'photo_view_screen.dart';
 import 'pin_messages_screen.dart';
 import 'self_destruct_screen.dart';
 import 'video_player_screen.dart';
+import '../l10n/app_strings.dart';
+import '../providers/locale_provider.dart';
 
 class ConversationScreen extends ConsumerStatefulWidget {
   final ChatUser user;
@@ -49,6 +51,8 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
   final Set<String> _selectedIds = {};
   RemoteMessage? _replyTo;
   String? _deadTime;
+
+  AppStrings get _s => AppStrings(ref.read(localeProvider));
 
   // Keep handler references so dispose() removes only this screen's listeners
   late final void Function(dynamic) _onListMessage;
@@ -466,7 +470,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
     if (xFile == null) return;
     if (mounted) {
       ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Uploading image…')));
+          .showSnackBar(SnackBar(content: Text(_s.uploadingImage)));
     }
     final url = await _uploadFile(xFile.path);
     if (url != null) {
@@ -475,7 +479,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
     } else {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Upload failed')));
+            SnackBar(content: Text(_s.uploadFailed)));
       }
     }
   }
@@ -485,7 +489,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
     if (xFile == null) return;
     if (mounted) {
       ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Uploading video…')));
+          .showSnackBar(SnackBar(content: Text(_s.uploadingVideo)));
     }
     final url = await _uploadFile(xFile.path);
     if (url != null) {
@@ -494,7 +498,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
     } else {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Upload failed')));
+            SnackBar(content: Text(_s.uploadFailed)));
       }
     }
   }
@@ -504,7 +508,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
     if (result == null || result.files.single.path == null) return;
     if (mounted) {
       ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Uploading file…')));
+          .showSnackBar(SnackBar(content: Text(_s.uploadingFile)));
     }
     final url = await _uploadFile(result.files.single.path!);
     if (url != null) {
@@ -513,7 +517,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
     } else {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Upload failed')));
+            SnackBar(content: Text(_s.uploadFailed)));
       }
     }
   }
@@ -525,13 +529,12 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Delete message'),
-        content: const Text(
-            'Delete for everyone? This cannot be undone.'),
+        title: Text(_s.deleteMessage),
+        content: Text(_s.deleteForEveryone),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
+              child: Text(_s.cancel)),
           TextButton(
             onPressed: () {
               Navigator.pop(context);
@@ -543,8 +546,8 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                   .read(messagesProvider(_roomId).notifier)
                   .removeMessage(msg.messageId!);
             },
-            child: const Text('Delete',
-                style: TextStyle(color: Colors.red)),
+            child: Text(_s.delete,
+                style: const TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -556,13 +559,12 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: Text('Delete ${_selectedIds.length} message(s)'),
-        content:
-            const Text('Delete for everyone? This cannot be undone.'),
+        title: Text(_s.deleteNMessages(_selectedIds.length)),
+        content: Text(_s.deleteForEveryone),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
+              child: Text(_s.cancel)),
           TextButton(
             onPressed: () {
               Navigator.pop(context);
@@ -579,8 +581,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                 _isSelectionMode = false;
               });
             },
-            child:
-                const Text('Delete', style: TextStyle(color: Colors.red)),
+            child: Text(_s.delete, style: const TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -653,6 +654,9 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(localeProvider);
+    // ignore: unused_local_variable
+    final s = _s;
     final allMessages = _roomId.isNotEmpty
         ? ref.watch(messagesProvider(_roomId))
         : <RemoteMessage>[];
@@ -740,7 +744,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
         autofocus: true,
         onChanged: (v) => setState(() => _searchQuery = v),
         decoration: InputDecoration(
-          hintText: 'Search messages…',
+          hintText: _s.searchMessagesHint,
           prefixIcon: const Icon(Icons.search),
           suffixIcon: _searchQuery.isNotEmpty
               ? IconButton(
@@ -792,7 +796,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                     style: const TextStyle(fontSize: 16),
                     overflow: TextOverflow.ellipsis),
                 Text(
-                  widget.user.connected ? 'Online' : 'Offline',
+                  widget.user.connected ? _s.online : _s.offline,
                   style: TextStyle(
                     fontSize: 12,
                     color: widget.user.connected
@@ -808,7 +812,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
       actions: [
         IconButton(
           icon: Icon(_isSearching ? Icons.search_off : Icons.search),
-          tooltip: 'Search messages',
+          tooltip: _s.searchMessages,
           onPressed: () {
             setState(() {
               _isSearching = !_isSearching;
@@ -821,7 +825,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
         ),
         IconButton(
           icon: const Icon(Icons.push_pin_outlined),
-          tooltip: 'Pinned messages',
+          tooltip: _s.pinnedMessages,
           onPressed: () {
             if (_roomId.isNotEmpty) {
               Navigator.push(
@@ -835,7 +839,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
         ),
         IconButton(
           icon: const Icon(Icons.timer_outlined),
-          tooltip: 'Self-destruct',
+          tooltip: _s.selfDestruct,
           onPressed: () async {
             final result = await Navigator.push<String?>(
               context,
@@ -868,11 +872,11 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
           });
         },
       ),
-      title: Text('${_selectedIds.length} selected'),
+      title: Text(_s.nSelected(_selectedIds.length)),
       actions: [
         IconButton(
           icon: const Icon(Icons.select_all),
-          tooltip: 'Select all',
+          tooltip: _s.selectAll,
           onPressed: () {
             setState(() {
               _selectedIds.clear();
@@ -930,7 +934,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
         children: [
           const Icon(Icons.timer, size: 16),
           const SizedBox(width: 4),
-          Text('Self-destruct: $_deadTime',
+          Text(_s.selfDestructBadge(_deadTime!),
               style: const TextStyle(fontSize: 13)),
           const Spacer(),
           GestureDetector(
@@ -1136,13 +1140,13 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
               ),
               const Icon(Icons.play_circle_filled,
                   size: 48, color: Colors.white),
-              const Positioned(
+              Positioned(
                 bottom: 8,
                 left: 8,
                 child: Text(
-                  'Video',
+                  _s.video,
                   style:
-                      TextStyle(color: Colors.white, fontSize: 12),
+                      const TextStyle(color: Colors.white, fontSize: 12),
                 ),
               ),
             ],
@@ -1165,8 +1169,8 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const Text('Tap to download',
-                      style: TextStyle(fontSize: 11)),
+                  Text(_s.tapToDownload,
+                      style: const TextStyle(fontSize: 11)),
                 ],
               ),
             ),
@@ -1212,7 +1216,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Reply',
+                Text(_s.reply,
                     style: TextStyle(
                         color: colorScheme.primary,
                         fontWeight: FontWeight.w600)),
@@ -1266,7 +1270,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                   if (_showEmoji) setState(() => _showEmoji = false);
                 },
                 decoration: InputDecoration(
-                  hintText: 'Message…',
+                  hintText: _s.messageHint,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(24),
                     borderSide: BorderSide.none,
@@ -1301,7 +1305,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
           children: [
             ListTile(
               leading: const Icon(Icons.camera_alt),
-              title: const Text('Camera'),
+              title: Text(_s.camera),
               onTap: () async {
                 Navigator.pop(context);
                 final xFile = await _imagePicker.pickImage(
@@ -1309,7 +1313,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                 if (xFile == null) return;
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Uploading…')));
+                      SnackBar(content: Text(_s.uploading)));
                 }
                 final url = await _uploadFile(xFile.path);
                 if (url != null) {
@@ -1321,7 +1325,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.image),
-              title: const Text('Image from gallery'),
+              title: Text(_s.imageFromGallery),
               onTap: () {
                 Navigator.pop(context);
                 _pickImage();
@@ -1329,7 +1333,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.videocam),
-              title: const Text('Video'),
+              title: Text(_s.video),
               onTap: () {
                 Navigator.pop(context);
                 _pickVideo();
@@ -1337,7 +1341,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.attach_file),
-              title: const Text('File'),
+              title: Text(_s.file),
               onTap: () {
                 Navigator.pop(context);
                 _pickFile();
@@ -1345,7 +1349,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.timer_outlined),
-              title: const Text('Set self-destruct timer'),
+              title: Text(_s.setSelfDestructTimer),
               onTap: () async {
                 Navigator.pop(context);
                 final result = await Navigator.push<String?>(
@@ -1383,7 +1387,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.reply),
-              title: const Text('Reply'),
+              title: Text(_s.reply),
               onTap: () {
                 Navigator.pop(context);
                 setState(() => _replyTo = msg);
@@ -1391,7 +1395,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.forward),
-              title: const Text('Forward'),
+              title: Text(_s.forward),
               onTap: () {
                 Navigator.pop(context);
                 Navigator.push(
@@ -1405,7 +1409,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
             ListTile(
               leading: Icon(
                   msg.isPin == 1 ? Icons.push_pin : Icons.push_pin_outlined),
-              title: Text(msg.isPin == 1 ? 'Unpin' : 'Pin'),
+              title: Text(msg.isPin == 1 ? _s.unpin : _s.pin),
               onTap: () {
                 Navigator.pop(context);
                 _togglePin(msg);
@@ -1414,21 +1418,21 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
             if (msg.messageContent != null && msg.typeMessage == 0)
               ListTile(
                 leading: const Icon(Icons.copy),
-                title: const Text('Copy'),
+                title: Text(_s.copy),
                 onTap: () {
                   Navigator.pop(context);
                   Clipboard.setData(
                       ClipboardData(text: msg.messageContent!));
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Copied')),
+                    SnackBar(content: Text(_s.copied)),
                   );
                 },
               ),
             ListTile(
               leading:
                   const Icon(Icons.delete_outline, color: Colors.red),
-              title: const Text('Delete',
-                  style: TextStyle(color: Colors.red)),
+              title: Text(_s.delete,
+                  style: const TextStyle(color: Colors.red)),
               onTap: () {
                 Navigator.pop(context);
                 _deleteMessage(msg);
@@ -1445,9 +1449,8 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
       context: context,
       position: const RelativeRect.fromLTRB(100, 80, 0, 0),
       items: [
-        const PopupMenuItem(value: 'pin', child: Text('Pinned messages')),
-        const PopupMenuItem(
-            value: 'destruct', child: Text('Self-destruct timer')),
+        PopupMenuItem(value: 'pin', child: Text(_s.pinnedMessages)),
+        PopupMenuItem(value: 'destruct', child: Text(_s.selfDestructTimer)),
       ],
     ).then((val) {
       if (val == 'pin' && _roomId.isNotEmpty) {

@@ -22,6 +22,8 @@ import 'forward_screen.dart';
 import 'photo_view_screen.dart';
 import 'pin_messages_screen.dart';
 import 'video_player_screen.dart';
+import '../l10n/app_strings.dart';
+import '../providers/locale_provider.dart';
 
 class GroupConversationScreen extends ConsumerStatefulWidget {
   final GroupData group;
@@ -58,6 +60,8 @@ class _GroupConversationScreenState
   late final void Function(dynamic) _onMessagePinList;
   late final void Function(dynamic) _onMessageDelivered;
   late final void Function(dynamic) _onMessageRead;
+
+  AppStrings get _s => AppStrings(ref.read(localeProvider));
 
   String get _roomId =>
       '${AppConstants.grpPrefix}${widget.group.groupId}]';
@@ -350,7 +354,7 @@ class _GroupConversationScreenState
     if (xFile == null) return;
     if (mounted) {
       ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Uploading image…')));
+          .showSnackBar(SnackBar(content: Text(_s.uploadingImage)));
     }
     final url = await _uploadFile(xFile.path);
     if (url != null) {
@@ -358,7 +362,7 @@ class _GroupConversationScreenState
           '${AppConstants.serverUrl}/public/$url', AppConstants.typeImage);
     } else if (mounted) {
       ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Upload failed')));
+          .showSnackBar(SnackBar(content: Text(_s.uploadFailed)));
     }
   }
 
@@ -368,7 +372,7 @@ class _GroupConversationScreenState
     if (xFile == null) return;
     if (mounted) {
       ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Uploading video…')));
+          .showSnackBar(SnackBar(content: Text(_s.uploadingVideo)));
     }
     final url = await _uploadFile(xFile.path);
     if (url != null) {
@@ -376,7 +380,7 @@ class _GroupConversationScreenState
           '${AppConstants.serverUrl}/public/$url', AppConstants.typeVideo);
     } else if (mounted) {
       ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Upload failed')));
+          .showSnackBar(SnackBar(content: Text(_s.uploadFailed)));
     }
   }
 
@@ -385,7 +389,7 @@ class _GroupConversationScreenState
     if (result == null || result.files.single.path == null) return;
     if (mounted) {
       ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Uploading file…')));
+          .showSnackBar(SnackBar(content: Text(_s.uploading)));
     }
     final url = await _uploadFile(result.files.single.path!);
     if (url != null) {
@@ -393,7 +397,7 @@ class _GroupConversationScreenState
           '${AppConstants.serverUrl}/public/$url', AppConstants.typeFile);
     } else if (mounted) {
       ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Upload failed')));
+          .showSnackBar(SnackBar(content: Text(_s.uploadFailed)));
     }
   }
 
@@ -403,12 +407,12 @@ class _GroupConversationScreenState
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Delete message'),
-        content: const Text('Delete for everyone?'),
+        title: Text(_s.deleteMessage),
+        content: Text(_s.deleteForEveryoneGroup),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
+              child: Text(_s.cancel)),
           TextButton(
             onPressed: () {
               Navigator.pop(context);
@@ -420,8 +424,8 @@ class _GroupConversationScreenState
                   .read(messagesProvider(widget.group.groupId).notifier)
                   .removeMessage(msg.messageId!);
             },
-            child: const Text('Delete',
-                style: TextStyle(color: Colors.red)),
+            child: Text(_s.delete,
+                style: const TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -433,13 +437,12 @@ class _GroupConversationScreenState
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: Text('Delete ${_selectedIds.length} message(s)'),
-        content:
-            const Text('Delete for everyone? This cannot be undone.'),
+        title: Text(_s.deleteNMessages(_selectedIds.length)),
+        content: Text(_s.deleteForEveryone),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
+              child: Text(_s.cancel)),
           TextButton(
             onPressed: () {
               Navigator.pop(context);
@@ -457,7 +460,7 @@ class _GroupConversationScreenState
               });
             },
             child:
-                const Text('Delete', style: TextStyle(color: Colors.red)),
+                Text(_s.delete, style: const TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -483,17 +486,17 @@ class _GroupConversationScreenState
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Rename group'),
+        title: Text(_s.renameGroup),
         content: TextField(
           controller: controller,
           decoration:
-              const InputDecoration(hintText: 'New group name'),
+              InputDecoration(hintText: _s.newGroupName),
           autofocus: true,
         ),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
+              child: Text(_s.cancel)),
           FilledButton(
             onPressed: () {
               final newName = controller.text.trim();
@@ -507,7 +510,7 @@ class _GroupConversationScreenState
                   .read(groupsProvider.notifier)
                   .updateGroupName(widget.group.groupId, newName);
             },
-            child: const Text('Save'),
+            child: Text(_s.save),
           ),
         ],
       ),
@@ -518,13 +521,12 @@ class _GroupConversationScreenState
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Delete group'),
-        content: const Text(
-            'Delete this group for everyone? This cannot be undone.'),
+        title: Text(_s.deleteGroup),
+        content: Text(_s.deleteGroupConfirm),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
+              child: Text(_s.cancel)),
           TextButton(
             onPressed: () {
               Navigator.pop(context);
@@ -537,8 +539,8 @@ class _GroupConversationScreenState
                   .removeGroup(widget.group.groupId);
               Navigator.pop(context);
             },
-            child: const Text('Delete',
-                style: TextStyle(color: Colors.red)),
+            child: Text(_s.delete,
+                style: const TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -549,12 +551,12 @@ class _GroupConversationScreenState
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Leave group'),
-        content: const Text('Are you sure you want to leave this group?'),
+        title: Text(_s.leaveGroup),
+        content: Text(_s.leaveGroupConfirm),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
+              child: Text(_s.cancel)),
           TextButton(
             onPressed: () {
               Navigator.pop(context);
@@ -566,8 +568,8 @@ class _GroupConversationScreenState
                   .removeGroup(widget.group.groupId);
               Navigator.pop(context);
             },
-            child: const Text('Leave',
-                style: TextStyle(color: Colors.red)),
+            child: Text(_s.leave,
+                style: const TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -605,6 +607,8 @@ class _GroupConversationScreenState
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(localeProvider);
+    final s = _s;
     final allMessages =
         ref.watch(messagesProvider(widget.group.groupId));
     final colorScheme = Theme.of(context).colorScheme;
@@ -671,6 +675,7 @@ class _GroupConversationScreenState
   }
 
   Widget _buildSearchBar(ColorScheme colorScheme) {
+    final s = _s;
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
       child: TextField(
@@ -678,7 +683,7 @@ class _GroupConversationScreenState
         autofocus: true,
         onChanged: (v) => setState(() => _searchQuery = v),
         decoration: InputDecoration(
-          hintText: 'Search messages…',
+          hintText: s.searchMessagesHint,
           prefixIcon: const Icon(Icons.search),
           suffixIcon: _searchQuery.isNotEmpty
               ? IconButton(
@@ -735,7 +740,7 @@ class _GroupConversationScreenState
                       children: [
                         _overlayBtn(
                           icon: Icons.reply,
-                          label: 'Reply',
+                          label: _s.reply,
                           color: colorScheme.onSurface,
                           onTap: () {
                             setState(() {
@@ -747,7 +752,7 @@ class _GroupConversationScreenState
                         ),
                         _overlayBtn(
                           icon: Icons.forward,
-                          label: 'Forward',
+                          label: _s.forward,
                           color: colorScheme.onSurface,
                           onTap: () {
                             setState(() {
@@ -762,19 +767,19 @@ class _GroupConversationScreenState
                         if (msg.messageContent != null && msg.typeMessage == 0)
                           _overlayBtn(
                             icon: Icons.copy_outlined,
-                            label: 'Copy',
+                            label: _s.copy,
                             color: colorScheme.onSurface,
                             onTap: () {
                               setState(() { _contextMsg = null; _contextMenuOffset = null; });
                               Clipboard.setData(ClipboardData(text: msg.messageContent!));
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Copied'), duration: Duration(seconds: 1)),
+                                SnackBar(content: Text(_s.copied), duration: const Duration(seconds: 1)),
                               );
                             },
                           ),
                         _overlayBtn(
                           icon: msg.isPin == 1 ? Icons.push_pin : Icons.push_pin_outlined,
-                          label: msg.isPin == 1 ? 'Unpin' : 'Pin',
+                          label: msg.isPin == 1 ? _s.unpin : _s.pin,
                           color: msg.isPin == 1 ? Colors.orange : colorScheme.onSurface,
                           onTap: () {
                             setState(() { _contextMsg = null; _contextMenuOffset = null; });
@@ -783,7 +788,7 @@ class _GroupConversationScreenState
                         ),
                         _overlayBtn(
                           icon: Icons.delete_outline,
-                          label: 'Delete',
+                          label: _s.delete,
                           color: Colors.red,
                           onTap: () {
                             setState(() {
@@ -836,6 +841,7 @@ class _GroupConversationScreenState
 
   PreferredSizeWidget _buildNormalAppBar(
       GroupData group, ColorScheme colorScheme) {
+    final s = _s;
     return AppBar(
       backgroundColor: colorScheme.surface,
       titleSpacing: 0,
@@ -865,7 +871,7 @@ class _GroupConversationScreenState
                     overflow: TextOverflow.ellipsis,
                   ),
                   Text(
-                    '${group.memberIds.length} members',
+                    s.nMembers(widget.group.memberIds.length),
                     style: TextStyle(
                         fontSize: 12, color: colorScheme.outline),
                   ),
@@ -878,7 +884,7 @@ class _GroupConversationScreenState
       actions: [
         IconButton(
           icon: Icon(_isSearching ? Icons.search_off : Icons.search),
-          tooltip: 'Search messages',
+          tooltip: s.searchMessages,
           onPressed: () {
             setState(() {
               _isSearching = !_isSearching;
@@ -907,21 +913,21 @@ class _GroupConversationScreenState
             }
           },
           itemBuilder: (_) => [
-            const PopupMenuItem(
-                value: 'members', child: Text('View members')),
-            const PopupMenuItem(
-                value: 'pins', child: Text('Pinned messages')),
-            const PopupMenuItem(
-                value: 'rename', child: Text('Rename group')),
-            const PopupMenuItem(
+            PopupMenuItem(
+                value: 'members', child: Text(s.viewMembers)),
+            PopupMenuItem(
+                value: 'pins', child: Text(s.pinnedMessages)),
+            PopupMenuItem(
+                value: 'rename', child: Text(s.renameGroup)),
+            PopupMenuItem(
                 value: 'leave',
-                child: Text('Leave group',
-                    style: TextStyle(color: Colors.orange))),
+                child: Text(s.leaveGroup,
+                    style: const TextStyle(color: Colors.orange))),
             if (group.adminId == _myDeviceId)
-              const PopupMenuItem(
+              PopupMenuItem(
                   value: 'delete',
-                  child: Text('Delete group',
-                      style: TextStyle(color: Colors.red))),
+                  child: Text(s.deleteGroup,
+                      style: const TextStyle(color: Colors.red))),
           ],
         ),
       ],
@@ -930,6 +936,7 @@ class _GroupConversationScreenState
 
   PreferredSizeWidget _buildSelectionAppBar(
       ColorScheme colorScheme, List<RemoteMessage> allMessages) {
+    final s = _s;
     return AppBar(
       backgroundColor: colorScheme.secondaryContainer,
       leading: IconButton(
@@ -943,11 +950,11 @@ class _GroupConversationScreenState
           });
         },
       ),
-      title: Text('${_selectedIds.length} selected'),
+      title: Text(s.nSelected(_selectedIds.length)),
       actions: [
         IconButton(
           icon: const Icon(Icons.select_all),
-          tooltip: 'Select all',
+          tooltip: s.selectAll,
           onPressed: () {
             setState(() {
               _selectedIds.clear();
@@ -1151,13 +1158,13 @@ class _GroupConversationScreenState
   Widget _buildSystemBubble(String content, ColorScheme colorScheme) {
     String display = content;
     if (content.startsWith(AppConstants.grpInvPrefix)) {
-      display = 'You were invited to the group';
+      display = _s.invitedToGroup;
     } else if (content.startsWith(AppConstants.grpLeavePrefix)) {
-      display = 'A member left the group';
+      display = _s.memberLeftGroup;
     } else if (content.startsWith(AppConstants.grpNamePrefix)) {
-      display = 'Group name was changed';
+      display = _s.groupNameChanged;
     } else if (content.startsWith(AppConstants.grpIconPrefix)) {
-      display = 'Group icon was updated';
+      display = _s.groupIconUpdated;
     }
 
     return Center(
@@ -1285,7 +1292,7 @@ class _GroupConversationScreenState
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Reply',
+                Text(_s.reply,
                     style: TextStyle(
                         color: colorScheme.primary,
                         fontWeight: FontWeight.w600)),
@@ -1308,6 +1315,7 @@ class _GroupConversationScreenState
   }
 
   Widget _buildInputBar(ColorScheme colorScheme) {
+    final s = _s;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
@@ -1341,7 +1349,7 @@ class _GroupConversationScreenState
                   if (_showEmoji) setState(() => _showEmoji = false);
                 },
                 decoration: InputDecoration(
-                  hintText: 'Message…',
+                  hintText: s.messageHint,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(24),
                     borderSide: BorderSide.none,
@@ -1376,7 +1384,7 @@ class _GroupConversationScreenState
           children: [
             ListTile(
               leading: const Icon(Icons.camera_alt),
-              title: const Text('Camera'),
+              title: Text(_s.camera),
               onTap: () async {
                 Navigator.pop(context);
                 final xFile = await _imagePicker.pickImage(
@@ -1384,7 +1392,7 @@ class _GroupConversationScreenState
                 if (xFile == null) return;
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Uploading…')));
+                      SnackBar(content: Text(_s.uploading)));
                 }
                 final url = await _uploadFile(xFile.path);
                 if (url != null) {
@@ -1395,7 +1403,7 @@ class _GroupConversationScreenState
             ),
             ListTile(
               leading: const Icon(Icons.image),
-              title: const Text('Image from gallery'),
+              title: Text(_s.imageFromGallery),
               onTap: () {
                 Navigator.pop(context);
                 _pickImage();
@@ -1403,7 +1411,7 @@ class _GroupConversationScreenState
             ),
             ListTile(
               leading: const Icon(Icons.videocam),
-              title: const Text('Video'),
+              title: Text(_s.video),
               onTap: () {
                 Navigator.pop(context);
                 _pickVideo();
@@ -1411,7 +1419,7 @@ class _GroupConversationScreenState
             ),
             ListTile(
               leading: const Icon(Icons.attach_file),
-              title: const Text('File'),
+              title: Text(_s.file),
               onTap: () {
                 Navigator.pop(context);
                 _pickFile();
@@ -1430,7 +1438,7 @@ class _GroupConversationScreenState
         children: [
           Padding(
             padding: const EdgeInsets.all(16),
-            child: Text('Members (${group.memberIds.length})',
+            child: Text(_s.membersSection(widget.group.memberIds.length),
                 style: const TextStyle(
                     fontSize: 18, fontWeight: FontWeight.bold)),
           ),
@@ -1447,7 +1455,7 @@ class _GroupConversationScreenState
                   ),
                   title: Text(id),
                   trailing: id == group.adminId
-                      ? const Chip(label: Text('Admin'))
+                      ? Chip(label: Text(_s.admin))
                       : null,
                 );
               },

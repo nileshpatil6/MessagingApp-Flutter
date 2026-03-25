@@ -1,17 +1,21 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
+import '../l10n/app_strings.dart';
+import '../providers/locale_provider.dart';
 
-class VideoPlayerScreen extends StatefulWidget {
+class VideoPlayerScreen extends ConsumerStatefulWidget {
   final String videoUrl;
 
   const VideoPlayerScreen({super.key, required this.videoUrl});
 
   @override
-  State<VideoPlayerScreen> createState() => _VideoPlayerScreenState();
+  ConsumerState<VideoPlayerScreen> createState() => _VideoPlayerScreenState();
 }
 
-class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
+class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
+  AppStrings get _s => AppStrings(ref.read(localeProvider));
   late VideoPlayerController _controller;
   bool _initialized = false;
   bool _hasError = false;
@@ -94,35 +98,37 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(localeProvider);
+    final s = _s;
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
         elevation: 0,
-        title: const Text('Video'),
+        title: Text(s.video),
         actions: [
           IconButton(
             icon: const Icon(Icons.download),
-            tooltip: 'Download',
+            tooltip: s.download,
             onPressed: () {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Download started')),
+                SnackBar(content: Text(s.downloadStarted)),
               );
             },
           ),
         ],
       ),
       body: _hasError
-          ? const Center(
+          ? Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.error_outline, size: 64, color: Colors.white54),
-                  SizedBox(height: 16),
+                  const Icon(Icons.error_outline, size: 64, color: Colors.white54),
+                  const SizedBox(height: 16),
                   Text(
-                    'Failed to load video',
-                    style: TextStyle(color: Colors.white54),
+                    s.failedToLoadVideo,
+                    style: const TextStyle(color: Colors.white54),
                   ),
                 ],
               ),

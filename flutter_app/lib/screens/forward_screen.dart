@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/constants.dart';
 import '../core/socket_client.dart';
+import '../l10n/app_strings.dart';
 import '../models/chat_user.dart';
 import '../models/remote_message.dart';
+import '../providers/locale_provider.dart';
 import '../providers/users_provider.dart';
 
 class ForwardScreen extends ConsumerStatefulWidget {
@@ -17,6 +19,8 @@ class ForwardScreen extends ConsumerStatefulWidget {
 }
 
 class _ForwardScreenState extends ConsumerState<ForwardScreen> {
+  AppStrings get _s => AppStrings(ref.read(localeProvider));
+
   final Set<String> _selectedDeviceIds = {};
   bool _isSending = false;
 
@@ -33,7 +37,7 @@ class _ForwardScreenState extends ConsumerState<ForwardScreen> {
   Future<void> _forward() async {
     if (_selectedDeviceIds.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Select at least one user')),
+        SnackBar(content: Text(_s.selectAtLeastOneUser)),
       );
       return;
     }
@@ -68,9 +72,7 @@ class _ForwardScreenState extends ConsumerState<ForwardScreen> {
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text(
-                'Forwarded to ${_selectedDeviceIds.length} contact(s)')),
+        SnackBar(content: Text(_s.forwardedToN(_selectedDeviceIds.length))),
       );
       Navigator.pop(context);
     }
@@ -78,6 +80,8 @@ class _ForwardScreenState extends ConsumerState<ForwardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(localeProvider);
+    final s = _s;
     final users = ref.watch(usersProvider).users;
     final myId = ref.read(usersProvider).myDeviceId;
     final filteredUsers =
@@ -88,10 +92,10 @@ class _ForwardScreenState extends ConsumerState<ForwardScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Forward to'),
+            Text(s.forwardTo),
             if (_selectedDeviceIds.isNotEmpty)
               Text(
-                '${_selectedDeviceIds.length} selected',
+                s.nSelected(_selectedDeviceIds.length),
                 style: const TextStyle(fontSize: 13, color: Colors.white70),
               ),
           ],
@@ -110,7 +114,7 @@ class _ForwardScreenState extends ConsumerState<ForwardScreen> {
                 : IconButton(
                     icon: const Icon(Icons.send),
                     onPressed: _forward,
-                    tooltip: 'Forward',
+                    tooltip: s.forward,
                   ),
         ],
       ),
@@ -130,7 +134,7 @@ class _ForwardScreenState extends ConsumerState<ForwardScreen> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Forwarding ${widget.messages.length} message(s)',
+                    s.forwardingNMessages(widget.messages.length),
                     style: const TextStyle(fontSize: 13),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -143,11 +147,11 @@ class _ForwardScreenState extends ConsumerState<ForwardScreen> {
           // User list
           Expanded(
             child: filteredUsers.isEmpty
-                ? const Center(child: Text('No users available'))
+                ? Center(child: Text(s.noUsersAvailable))
                 : ListView.builder(
                     itemCount: filteredUsers.length,
                     itemBuilder: (_, i) =>
-                        _buildUserTile(filteredUsers[i], context),
+                        _buildUserTile(filteredUsers[i], context, s),
                   ),
           ),
         ],
@@ -155,14 +159,14 @@ class _ForwardScreenState extends ConsumerState<ForwardScreen> {
       floatingActionButton: _selectedDeviceIds.isNotEmpty
           ? FloatingActionButton.extended(
               onPressed: _isSending ? null : _forward,
-              label: Text('Send to ${_selectedDeviceIds.length}'),
+              label: Text(s.sendToN(_selectedDeviceIds.length)),
               icon: const Icon(Icons.send),
             )
           : null,
     );
   }
 
-  Widget _buildUserTile(ChatUser user, BuildContext context) {
+  Widget _buildUserTile(ChatUser user, BuildContext context, AppStrings s) {
     final isSelected = _selectedDeviceIds.contains(user.deviceId);
     final colorScheme = Theme.of(context).colorScheme;
 
@@ -218,7 +222,7 @@ class _ForwardScreenState extends ConsumerState<ForwardScreen> {
                     ),
                   ),
                   Text(
-                    user.connected ? 'Online' : 'Offline',
+                    user.connected ? s.online : s.offline,
                     style: TextStyle(
                       fontSize: 13,
                       color: user.connected

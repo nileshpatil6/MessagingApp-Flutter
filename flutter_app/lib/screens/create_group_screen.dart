@@ -1,12 +1,17 @@
+import 'dart:io';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/constants.dart';
 import '../core/socket_client.dart';
+import '../l10n/app_strings.dart';
 import '../models/chat_user.dart';
 import '../models/group_data.dart';
 import '../providers/groups_provider.dart';
+import '../providers/locale_provider.dart';
 import '../providers/users_provider.dart';
 
 class CreateGroupScreen extends ConsumerStatefulWidget {
@@ -18,8 +23,11 @@ class CreateGroupScreen extends ConsumerStatefulWidget {
 }
 
 class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
+  AppStrings get _s => AppStrings(ref.read(localeProvider));
+
   final _groupNameController = TextEditingController();
-  final _iconController = TextEditingController();
+  String? _iconUrl;
+  bool _isUploadingIcon = false;
 
   int _step = 1; // 1 = select members, 2 = group details
   final Set<String> _selectedDeviceIds = {};
@@ -27,8 +35,51 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
   @override
   void dispose() {
     _groupNameController.dispose();
-    _iconController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickGroupIcon() async {
+    final picker = ImagePicker();
+    final xFile = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 80,
+    );
+    if (xFile == null) return;
+    setState(() => _isUploadingIcon = true);
+    try {
+      final dio = Dio();
+      final formData = FormData.fromMap({
+        'files': await MultipartFile.fromFile(
+          xFile.path,
+          filename: xFile.path.split(Platform.pathSeparator).last,
+        ),
+      });
+      final response = await dio.post(
+        AppConstants.uploadFileChatUrl,
+        data: formData,
+      );
+      if (response.statusCode == 200) {
+        final data = response.data;
+        String? uploadedPath;
+        if (data is Map) {
+          uploadedPath = data['file']?.toString() ??
+              data['url']?.toString() ??
+              (data['files'] is List
+                  ? (data['files'] as List).first?.toString()
+                  : null);
+        } else if (data is List && data.isNotEmpty) {
+          uploadedPath = data.first?.toString();
+        }
+        if (uploadedPath != null) {
+          setState(() {
+            _iconUrl = '${AppConstants.serverUrl}/public/$uploadedPath';
+            _isUploadingIcon = false;
+          });
+          return;
+        }
+      }
+    } catch (_) {}
+    setState(() => _isUploadingIcon = false);
   }
 
   // ── Step 1: member selection ───────────────────────────────────────────────
@@ -36,7 +87,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
   void _goToStep2() {
     if (_selectedDeviceIds.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Select at least one member')),
+        SnackBar(content: Text(_s.selectAtLeastOneMember)),
       );
       return;
     }
@@ -49,7 +100,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
     final name = _groupNameController.text.trim();
     if (name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Group name is required')),
+        SnackBar(content: Text(_s.groupNameRequired)),
       );
       return;
     }
@@ -64,9 +115,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
       groupName: name,
       adminId: myId,
       memberIds: memberIds,
-      iconUrl: _iconController.text.trim().isEmpty
-          ? null
-          : _iconController.text.trim(),
+      iconUrl: _iconUrl,
       createdAt: now,
     );
 
@@ -90,7 +139,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Group "$name" created')),
+        SnackBar(content: Text(_s.groupCreated(name))),
       );
       Navigator.pop(context);
     }
@@ -100,10 +149,12 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return _step == 1 ? _buildStep1() : _buildStep2();
+    ref.watch(localeProvider);
+    final s = _s;
+    return _step == 1 ? _buildStep1(s) : _buildStep2(s);
   }
 
-  Widget _buildStep1() {
+  Widget _buildStep1(AppStrings s) {
     final users = ref.watch(usersProvider).users;
     final myId = ref.read(usersProvider).myDeviceId;
     final filteredUsers =
@@ -114,9 +165,9 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('New Group'),
+            Text(s.newGroup),
             Text(
-              'Select members',
+              s.selectMembers,
               style: Theme.of(context)
                   .textTheme
                   .bodySmall
@@ -127,20 +178,20 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
         actions: [
           TextButton(
             onPressed: _goToStep2,
-            child: const Text('Next',
-                style: TextStyle(
+            child: Text(s.next,
+                style: const TextStyle(
                     color: Colors.white, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
       body: filteredUsers.isEmpty
-          ? const Center(
+          ? Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.people_outline, size: 64),
-                  SizedBox(height: 16),
-                  Text('No users online'),
+                  const Icon(Icons.people_outline, size: 64),
+                  const SizedBox(height: 16),
+                  Text(s.noUsersOnlineGroup),
                 ],
               ),
             )
@@ -152,7 +203,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
                   child: ListView.builder(
                     itemCount: filteredUsers.length,
                     itemBuilder: (_, i) =>
-                        _buildUserCheckTile(filteredUsers[i]),
+                        _buildUserCheckTile(filteredUsers[i], s),
                   ),
                 ),
               ],
@@ -160,7 +211,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
       floatingActionButton: _selectedDeviceIds.isNotEmpty
           ? FloatingActionButton.extended(
               onPressed: _goToStep2,
-              label: Text('Next (${_selectedDeviceIds.length})'),
+              label: Text(s.nextWithCount(_selectedDeviceIds.length)),
               icon: const Icon(Icons.arrow_forward),
             )
           : null,
@@ -223,7 +274,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
     );
   }
 
-  Widget _buildUserCheckTile(ChatUser user) {
+  Widget _buildUserCheckTile(ChatUser user, AppStrings s) {
     final isSelected = _selectedDeviceIds.contains(user.deviceId);
 
     return CheckboxListTile(
@@ -248,13 +299,13 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
             : null,
       ),
       title: Text(user.displayName),
-      subtitle: Text(user.connected ? 'Online' : 'Offline',
+      subtitle: Text(user.connected ? s.online : s.offline,
           style: TextStyle(
               color: user.connected ? Colors.green : Colors.grey)),
     );
   }
 
-  Widget _buildStep2() {
+  Widget _buildStep2(AppStrings s) {
     final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
@@ -263,7 +314,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
           icon: const Icon(Icons.arrow_back),
           onPressed: () => setState(() => _step = 1),
         ),
-        title: const Text('Group Details'),
+        title: Text(s.groupDetails),
       ),
       body: Padding(
         padding: const EdgeInsets.all(24),
@@ -271,15 +322,36 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Center(
-              child: CircleAvatar(
-                radius: 48,
-                backgroundImage:
-                    _iconController.text.trim().isNotEmpty
-                        ? NetworkImage(_iconController.text.trim())
-                        : null,
-                child: _iconController.text.trim().isEmpty
-                    ? const Icon(Icons.group, size: 48)
-                    : null,
+              child: GestureDetector(
+                onTap: _pickGroupIcon,
+                child: Stack(
+                  children: [
+                    CircleAvatar(
+                      radius: 48,
+                      backgroundImage: _iconUrl != null
+                          ? NetworkImage(_iconUrl!)
+                          : null,
+                      child: _isUploadingIcon
+                          ? const CircularProgressIndicator()
+                          : _iconUrl == null
+                              ? const Icon(Icons.group, size: 48)
+                              : null,
+                    ),
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: colorScheme.primary,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.camera_alt,
+                            size: 16, color: Colors.white),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 24),
@@ -288,8 +360,8 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
               autofocus: true,
               textCapitalization: TextCapitalization.sentences,
               decoration: InputDecoration(
-                labelText: 'Group name *',
-                hintText: 'Enter group name',
+                labelText: s.groupNameLabel,
+                hintText: s.groupNameHint,
                 filled: true,
                 fillColor: colorScheme.surfaceContainerHighest,
                 border: OutlineInputBorder(
@@ -298,22 +370,6 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
                 ),
                 prefixIcon: const Icon(Icons.group),
               ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _iconController,
-              decoration: InputDecoration(
-                labelText: 'Icon URL (optional)',
-                hintText: 'https://…',
-                filled: true,
-                fillColor: colorScheme.surfaceContainerHighest,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-                prefixIcon: const Icon(Icons.image),
-              ),
-              onChanged: (_) => setState(() {}),
             ),
             const SizedBox(height: 24),
             // Member count summary
@@ -328,7 +384,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
                   const Icon(Icons.people),
                   const SizedBox(width: 8),
                   Text(
-                    '${_selectedDeviceIds.length + 1} members will be added',
+                    s.membersWillBeAdded(_selectedDeviceIds.length + 1),
                     style: const TextStyle(fontSize: 15),
                   ),
                 ],
@@ -338,7 +394,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
             FilledButton.icon(
               onPressed: _createGroup,
               icon: const Icon(Icons.check),
-              label: const Text('Create Group'),
+              label: Text(s.createGroupAction),
               style: FilledButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(

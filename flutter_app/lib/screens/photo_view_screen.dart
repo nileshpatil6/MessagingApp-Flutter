@@ -1,8 +1,11 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:photo_view/photo_view.dart';
+import '../l10n/app_strings.dart';
+import '../providers/locale_provider.dart';
 
-class PhotoViewScreen extends StatelessWidget {
+class PhotoViewScreen extends ConsumerWidget {
   final String imageUrl;
 
   const PhotoViewScreen({super.key, required this.imageUrl});
@@ -11,7 +14,8 @@ class PhotoViewScreen extends StatelessWidget {
       imageUrl.startsWith('http://') || imageUrl.startsWith('https://');
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = AppStrings(ref.watch(localeProvider));
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -21,19 +25,19 @@ class PhotoViewScreen extends StatelessWidget {
         actions: [
           IconButton(
             icon: const Icon(Icons.share),
-            tooltip: 'Share',
+            tooltip: s.share,
             onPressed: () {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Share not yet implemented')),
+                SnackBar(content: Text(s.shareNotImplemented)),
               );
             },
           ),
           IconButton(
             icon: const Icon(Icons.download),
-            tooltip: 'Download',
+            tooltip: s.download,
             onPressed: () {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Download started')),
+                SnackBar(content: Text(s.downloadStarted)),
               );
             },
           ),
@@ -65,14 +69,14 @@ class PhotoViewScreen extends StatelessWidget {
                 color: Colors.white,
               ),
             ),
-            errorBuilder: (_, error, __) => const Column(
+            errorBuilder: (_, error, __) => Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.broken_image, size: 64, color: Colors.white54),
-                SizedBox(height: 16),
+                const Icon(Icons.broken_image, size: 64, color: Colors.white54),
+                const SizedBox(height: 16),
                 Text(
-                  'Failed to load image',
-                  style: TextStyle(color: Colors.white54),
+                  s.failedToLoadImage,
+                  style: const TextStyle(color: Colors.white54),
                 ),
               ],
             ),
