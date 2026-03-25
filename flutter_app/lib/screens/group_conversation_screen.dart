@@ -70,8 +70,13 @@ class _GroupConversationScreenState
     _myDeviceId = ref.read(usersProvider).myDeviceId;
     NotificationService.instance.activeConversationDeviceId =
         widget.group.groupId;
+    // Load cached messages from SharedPreferences so they survive app restarts
+    await ref
+        .read(messagesProvider(widget.group.groupId).notifier)
+        .loadCached();
     _listenToSocket();
     ref.read(groupsProvider.notifier).clearUnread(widget.group.groupId);
+    _scrollToBottom();
   }
 
   static dynamic _d(dynamic raw) {

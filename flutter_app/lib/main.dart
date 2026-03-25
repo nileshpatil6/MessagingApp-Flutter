@@ -151,8 +151,17 @@ void _setupGlobalSocketListeners() {
       }
     }
 
-    // ── Push notification ─────────────────────────────────────────────────────
+    // ── Push notification (DMs only — group notifications handled by main_screen) ──
     final content = parsed['message_content']?.toString() ?? '';
+    // Skip group messages — main_screen._handleGroupMessage shows a clean notification
+    if (content.startsWith('[GRP:') ||
+        content.startsWith('[GRP_INV:') ||
+        content.startsWith('[GRP_LEAVE:') ||
+        content.startsWith('[GRP_NAME:') ||
+        content.startsWith('[GRP_ICON:')) {
+      return;
+    }
+
     final typeMessage = int.tryParse(parsed['type_message']?.toString() ?? '0') ?? 0;
     final body = typeMessage == 0
         ? (content.isNotEmpty ? content : 'New message')
