@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:timeago/timeago.dart' as timeago;
@@ -10,9 +13,11 @@ import '../core/constants.dart';
 import '../core/local_storage.dart';
 import '../core/notification_service.dart';
 import '../core/socket_client.dart';
+import '../l10n/app_strings.dart';
 import '../models/chat_user.dart';
 import '../models/group_data.dart';
 import '../models/remote_message.dart';
+import '../providers/locale_provider.dart';
 import '../providers/messages_provider.dart';
 import '../providers/users_provider.dart';
 import '../providers/groups_provider.dart';
@@ -36,6 +41,9 @@ class _MainScreenState extends ConsumerState<MainScreen>
   bool _notificationsEnabled = true;
   // Dedup: prevent double-count when server sends via room + direct delivery
   final _seenMessageIds = <String>{};
+
+  /// Convenience getter — uses ref.read so it's safe outside build().
+  AppStrings get _s => AppStrings(ref.read(localeProvider));
 
   @override
   void initState() {
@@ -200,8 +208,8 @@ class _MainScreenState extends ConsumerState<MainScreen>
         context: context,
         barrierDismissible: false,
         builder: (_) => AlertDialog(
-          title: const Text('Incoming call'),
-          content: Text('$callerName is calling you'),
+          title: Text(_s.incomingCall),
+          content: Text(_s.callingYou(callerName)),
           actions: [
             TextButton(
               style: TextButton.styleFrom(foregroundColor: Colors.red),
@@ -213,7 +221,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
                   'type': 'bye',
                 });
               },
-              child: const Text('Decline'),
+              child: Text(_s.decline),
             ),
             FilledButton(
               onPressed: () {
@@ -230,7 +238,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
                   );
                 }
               },
-              child: const Text('Answer'),
+              child: Text(_s.answer),
             ),
           ],
         ),
@@ -384,6 +392,8 @@ class _MainScreenState extends ConsumerState<MainScreen>
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(localeProvider); // trigger rebuild on locale change
+    final s = _s;
     final usersState = ref.watch(usersProvider);
     final groups = ref.watch(groupsProvider);
     final colorScheme = Theme.of(context).colorScheme;
@@ -423,7 +433,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
       appBar: AppBar(
         backgroundColor: colorScheme.surface,
         title: Text(
-          'Messages',
+          s.messages,
           style: TextStyle(
             fontWeight: FontWeight.bold,
             color: colorScheme.onSurface,
@@ -437,9 +447,9 @@ class _MainScreenState extends ConsumerState<MainScreen>
         ],
         bottom: TabBar(
           controller: _tabController,
-          tabs: const [
-            Tab(text: 'Chats'),
-            Tab(text: 'Groups'),
+          tabs: [
+            Tab(text: s.chats),
+            Tab(text: s.groups),
           ],
         ),
       ),
@@ -465,7 +475,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
           context,
           MaterialPageRoute(builder: (_) => const CreateGroupScreen()),
         ),
-        tooltip: 'Create group',
+        tooltip: s.createGroup,
         child: const Icon(Icons.group_add),
       ),
     );
@@ -478,7 +488,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
         controller: _searchController,
         onChanged: (v) => setState(() => _searchQuery = v),
         decoration: InputDecoration(
-          hintText: 'Search chats…',
+          hintText: _s.searchChats,
           prefixIcon: const Icon(Icons.search),
           suffixIcon: _searchQuery.isNotEmpty
               ? IconButton(
@@ -515,7 +525,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
             Icon(Icons.chat_bubble_outline,
                 size: 64, color: colorScheme.outlineVariant),
             const SizedBox(height: 16),
-            Text('No users online',
+            Text(_s.noUsersOnline,
                 style: TextStyle(color: colorScheme.outline)),
           ],
         ),
@@ -525,11 +535,11 @@ class _MainScreenState extends ConsumerState<MainScreen>
     return ListView(
       children: [
         if (pinned.isNotEmpty) ...[
-          _sectionHeader('Pinned', colorScheme),
+          _sectionHeader(_s.pinnedSection, colorScheme),
           ...pinned.map((u) => _buildUserTile(u, context, colorScheme)),
         ],
         if (regular.isNotEmpty) ...[
-          if (pinned.isNotEmpty) _sectionHeader('Recent', colorScheme),
+          if (pinned.isNotEmpty) _sectionHeader(_s.recentSection, colorScheme),
           ...regular.map((u) => _buildUserTile(u, context, colorScheme)),
         ],
       ],
@@ -682,7 +692,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
             Icon(Icons.group_outlined,
                 size: 64, color: colorScheme.outlineVariant),
             const SizedBox(height: 16),
-            Text('No groups yet', style: TextStyle(color: colorScheme.outline)),
+            Text(_s.noGroupsYet, style: TextStyle(color: colorScheme.outline)),
             const SizedBox(height: 8),
             FilledButton.icon(
               onPressed: () => Navigator.push(
@@ -690,7 +700,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
                 MaterialPageRoute(builder: (_) => const CreateGroupScreen()),
               ),
               icon: const Icon(Icons.add),
-              label: const Text('Create Group'),
+              label: Text(_s.createGroupButton),
             ),
           ],
         ),
@@ -835,14 +845,14 @@ class _MainScreenState extends ConsumerState<MainScreen>
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              title: const Text('Change name'),
+              title: Text(_s.changeName),
               onTap: () {
                 Navigator.pop(context);
                 _showRenameDialog(context, user);
               },
             ),
             ListTile(
-              title: Text(user.isPinned ? 'Unpin from top' : 'Pin to top'),
+              title: Text(user.isPinned ? _s.unpinFromTop : _s.pinToTop),
               onTap: () {
                 Navigator.pop(context);
                 ref
@@ -852,7 +862,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
             ),
             ListTile(
               title: Text(
-                  user.isMuted ? 'Turn notifications on' : 'Turn notifications off'),
+                  user.isMuted ? _s.turnNotificationsOn : _s.turnNotificationsOff),
               onTap: () {
                 Navigator.pop(context);
                 ref
@@ -861,7 +871,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
               },
             ),
             ListTile(
-              title: const Text('Hide this friend'),
+              title: Text(_s.hideFriend),
               onTap: () {
                 Navigator.pop(context);
                 ref
@@ -870,16 +880,16 @@ class _MainScreenState extends ConsumerState<MainScreen>
               },
             ),
             ListTile(
-              title: const Text('Block this friend',
-                  style: TextStyle(color: Colors.red)),
+              title: Text(_s.blockFriend,
+                  style: const TextStyle(color: Colors.red)),
               onTap: () {
                 Navigator.pop(context);
                 _confirmBlock(context, user);
               },
             ),
             ListTile(
-              title: const Text('Delete messages',
-                  style: TextStyle(color: Colors.red)),
+              title: Text(_s.deleteMessages,
+                  style: const TextStyle(color: Colors.red)),
               onTap: () {
                 Navigator.pop(context);
                 _confirmDeleteChat(context, user);
@@ -896,11 +906,11 @@ class _MainScreenState extends ConsumerState<MainScreen>
       context: context,
       builder: (_) => AlertDialog(
         content:
-            Text('Block ${user.displayName}?'),
+            Text(_s.blockUserPrompt(user.displayName)),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
+              child: Text(_s.cancel)),
           TextButton(
             onPressed: () {
               Navigator.pop(context);
@@ -908,8 +918,8 @@ class _MainScreenState extends ConsumerState<MainScreen>
                   .read(usersProvider.notifier)
                   .blockUser(user.deviceId, blocked: true);
             },
-            child: const Text('Block',
-                style: TextStyle(color: Colors.red)),
+            child: Text(_s.block,
+                style: const TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -920,12 +930,11 @@ class _MainScreenState extends ConsumerState<MainScreen>
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        content: Text(
-            'Delete messages from ${user.displayName}? This cannot be undone.'),
+        content: Text(_s.deleteMessagesFrom(user.displayName)),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
+              child: Text(_s.cancel)),
           TextButton(
             onPressed: () {
               Navigator.pop(context);
@@ -934,8 +943,8 @@ class _MainScreenState extends ConsumerState<MainScreen>
                   .updateLastMessage(user.deviceId, '', DateTime.now());
               ref.read(usersProvider.notifier).clearUnread(user.deviceId);
             },
-            child: const Text('Delete',
-                style: TextStyle(color: Colors.red)),
+            child: Text(_s.delete,
+                style: const TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -948,16 +957,16 @@ class _MainScreenState extends ConsumerState<MainScreen>
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Rename contact'),
+        title: Text(_s.renameContact),
         content: TextField(
           controller: controller,
-          decoration: const InputDecoration(hintText: 'Custom name'),
+          decoration: InputDecoration(hintText: _s.customName),
           autofocus: true,
         ),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
+              child: Text(_s.cancel)),
           FilledButton(
             onPressed: () {
               ref.read(usersProvider.notifier).setCustomName(
@@ -968,7 +977,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
                   );
               Navigator.pop(context);
             },
-            child: const Text('Save'),
+            child: Text(_s.save),
           ),
         ],
       ),
@@ -976,24 +985,25 @@ class _MainScreenState extends ConsumerState<MainScreen>
   }
 
   void _showMainMenu(BuildContext context) {
+    final s = _s;
     showMenu(
       context: context,
       position: const RelativeRect.fromLTRB(100, 56, 0, 0),
       items: [
-        const PopupMenuItem(
+        PopupMenuItem(
           value: 'icon',
           child: Row(children: [
-            Icon(Icons.account_circle_outlined, size: 20),
-            SizedBox(width: 12),
-            Text('Change icon'),
+            const Icon(Icons.account_circle_outlined, size: 20),
+            const SizedBox(width: 12),
+            Text(s.changeIcon),
           ]),
         ),
-        const PopupMenuItem(
+        PopupMenuItem(
           value: 'rename',
           child: Row(children: [
-            Icon(Icons.drive_file_rename_outline, size: 20),
-            SizedBox(width: 12),
-            Text('Change name'),
+            const Icon(Icons.drive_file_rename_outline, size: 20),
+            const SizedBox(width: 12),
+            Text(s.changeName),
           ]),
         ),
         PopupMenuItem(
@@ -1005,48 +1015,56 @@ class _MainScreenState extends ConsumerState<MainScreen>
                 size: 20),
             const SizedBox(width: 12),
             Text(_notificationsEnabled
-                ? 'Turn notifications off'
-                : 'Turn notifications on'),
+                ? s.turnNotificationsOff
+                : s.turnNotificationsOn),
           ]),
         ),
-        const PopupMenuItem(
+        PopupMenuItem(
           value: 'qr_show',
           child: Row(children: [
-            Icon(Icons.qr_code, size: 20),
-            SizedBox(width: 12),
-            Text('Show QR code'),
+            const Icon(Icons.qr_code, size: 20),
+            const SizedBox(width: 12),
+            Text(s.showQrCode),
           ]),
         ),
-        const PopupMenuItem(
+        PopupMenuItem(
           value: 'qr_scan',
           child: Row(children: [
-            Icon(Icons.qr_code_scanner, size: 20),
-            SizedBox(width: 12),
-            Text('Scan QR code'),
+            const Icon(Icons.qr_code_scanner, size: 20),
+            const SizedBox(width: 12),
+            Text(s.scanQrCode),
           ]),
         ),
-        const PopupMenuItem(
+        PopupMenuItem(
           value: 'create_group',
           child: Row(children: [
-            Icon(Icons.group_add_outlined, size: 20),
-            SizedBox(width: 12),
-            Text('Create group'),
+            const Icon(Icons.group_add_outlined, size: 20),
+            const SizedBox(width: 12),
+            Text(s.createGroup),
           ]),
         ),
-        const PopupMenuItem(
+        PopupMenuItem(
           value: 'hidden',
           child: Row(children: [
-            Icon(Icons.visibility_outlined, size: 20),
-            SizedBox(width: 12),
-            Text('Show hidden users'),
+            const Icon(Icons.visibility_outlined, size: 20),
+            const SizedBox(width: 12),
+            Text(s.showHiddenUsers),
           ]),
         ),
-        const PopupMenuItem(
+        PopupMenuItem(
           value: 'blocked',
           child: Row(children: [
-            Icon(Icons.block_outlined, size: 20),
-            SizedBox(width: 12),
-            Text('Block list'),
+            const Icon(Icons.block_outlined, size: 20),
+            const SizedBox(width: 12),
+            Text(s.blockList),
+          ]),
+        ),
+        PopupMenuItem(
+          value: 'language',
+          child: Row(children: [
+            const Icon(Icons.language),
+            const SizedBox(width: 12),
+            Text(s.switchToEnglish),
           ]),
         ),
       ],
@@ -1062,6 +1080,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
       }
       if (val == 'hidden') _showHiddenUsers(context);
       if (val == 'blocked') _showBlockedUsers(context);
+      if (val == 'language') ref.read(localeProvider.notifier).toggle();
     });
   }
 
@@ -1071,45 +1090,63 @@ class _MainScreenState extends ConsumerState<MainScreen>
     setState(() => _notificationsEnabled = newVal);
   }
 
-  void _showChangeIconDialog(BuildContext context) {
-    final controller = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Change icon'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            hintText: 'Enter image URL',
-            labelText: 'Icon URL',
-          ),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () async {
-              final url = controller.text.trim();
-              if (url.isNotEmpty) {
-                await LocalStorage.setDeviceName(
-                    ref.read(usersProvider).myName);
-                // Broadcast icon change via socket
-                SocketClient.instance.emit(
-                  AppConstants.pvUpdateUserName,
-                  {
-                    'name': ref.read(usersProvider).myName,
-                    'icon': url,
-                  },
-                );
-              }
-              if (context.mounted) Navigator.pop(context);
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
+  Future<void> _showChangeIconDialog(BuildContext context) async {
+    final picker = ImagePicker();
+    final xFile = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 80,
     );
+    if (xFile == null) return;
+    if (!context.mounted) return;
+
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(_s.uploading)));
+
+    try {
+      final dio = Dio();
+      final formData = FormData.fromMap({
+        'files': await MultipartFile.fromFile(
+          xFile.path,
+          filename: xFile.path.split(Platform.pathSeparator).last,
+        ),
+      });
+      final response = await dio.post(
+        AppConstants.uploadFileChatUrl,
+        data: formData,
+      );
+      if (response.statusCode == 200) {
+        final data = response.data;
+        String? uploadedPath;
+        if (data is Map) {
+          uploadedPath = data['file']?.toString() ??
+              data['url']?.toString() ??
+              (data['files'] is List
+                  ? (data['files'] as List).first?.toString()
+                  : null);
+        } else if (data is List && data.isNotEmpty) {
+          uploadedPath = data.first?.toString();
+        }
+        if (uploadedPath != null) {
+          final url = '${AppConstants.serverUrl}/public/$uploadedPath';
+          SocketClient.instance.emit(AppConstants.pvUpdateUserName, {
+            'name': ref.read(usersProvider).myName,
+            'icon': url,
+          });
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+            ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(_s.iconUpdated)));
+          }
+          return;
+        }
+      }
+    } catch (_) {}
+
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(_s.uploadIconFailed)));
+    }
   }
 
   void _showQrCode(BuildContext context) {
@@ -1143,7 +1180,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Close')),
+              child: Text(_s.close)),
         ],
       ),
     );
@@ -1168,8 +1205,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text(
-                  'User "$scannedId" is not online right now.')),
+              content: Text(_s.userNotOnline(scannedId))),
         );
       }
     });
@@ -1195,16 +1231,16 @@ class _MainScreenState extends ConsumerState<MainScreen>
                   color: Colors.grey[300],
                   borderRadius: BorderRadius.circular(2)),
             ),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Text('Hidden users',
-                  style: TextStyle(
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Text(_s.hiddenUsers,
+                  style: const TextStyle(
                       fontWeight: FontWeight.bold, fontSize: 16)),
             ),
             if (hidden.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(24),
-                child: Text('No hidden users'),
+              Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(_s.noHiddenUsers),
               )
             else
               ...hidden.map(
@@ -1212,7 +1248,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
                   leading: _buildAvatar(u.displayName, u.displayIcon),
                   title: Text(u.displayName),
                   trailing: TextButton(
-                    child: const Text('Unhide'),
+                    child: Text(_s.unhide),
                     onPressed: () {
                       ref
                           .read(usersProvider.notifier)
@@ -1248,16 +1284,16 @@ class _MainScreenState extends ConsumerState<MainScreen>
                   color: Colors.grey[300],
                   borderRadius: BorderRadius.circular(2)),
             ),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Text('Blocked users',
-                  style: TextStyle(
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Text(_s.blockedUsers,
+                  style: const TextStyle(
                       fontWeight: FontWeight.bold, fontSize: 16)),
             ),
             if (blocked.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(24),
-                child: Text('No blocked users'),
+              Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(_s.noBlockedUsers),
               )
             else
               ...blocked.map(
@@ -1267,7 +1303,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
                   trailing: TextButton(
                     style: TextButton.styleFrom(
                         foregroundColor: Colors.red),
-                    child: const Text('Unblock'),
+                    child: Text(_s.unblock),
                     onPressed: () {
                       ref
                           .read(usersProvider.notifier)
@@ -1289,15 +1325,15 @@ class _MainScreenState extends ConsumerState<MainScreen>
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('My Profile'),
+        title: Text(_s.myProfile),
         content: TextField(
           controller: controller,
-          decoration: const InputDecoration(labelText: 'Display name'),
+          decoration: InputDecoration(labelText: _s.displayName),
         ),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
+              child: Text(_s.cancel)),
           FilledButton(
             onPressed: () async {
               final newName = controller.text.trim();
@@ -1311,7 +1347,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
               }
               if (context.mounted) Navigator.pop(context);
             },
-            child: const Text('Save'),
+            child: Text(_s.save),
           ),
         ],
       ),
@@ -1349,7 +1385,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
             ),
             ListTile(
               leading: const Icon(Icons.person),
-              title: const Text('Edit Profile'),
+              title: Text(_s.editProfile),
               onTap: () {
                 Navigator.pop(context);
                 _showProfileDialog(context);
@@ -1357,7 +1393,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
             ),
             ListTile(
               leading: const Icon(Icons.group),
-              title: const Text('Create Group'),
+              title: Text(_s.createGroupButton),
               onTap: () {
                 Navigator.pop(context);
                 Navigator.push(
@@ -1375,20 +1411,21 @@ class _MainScreenState extends ConsumerState<MainScreen>
 
 // ── QR Scanner Screen ─────────────────────────────────────────────────────────
 
-class _QrScanScreen extends StatefulWidget {
+class _QrScanScreen extends ConsumerStatefulWidget {
   const _QrScanScreen();
 
   @override
-  State<_QrScanScreen> createState() => _QrScanScreenState();
+  ConsumerState<_QrScanScreen> createState() => _QrScanScreenState();
 }
 
-class _QrScanScreenState extends State<_QrScanScreen> {
+class _QrScanScreenState extends ConsumerState<_QrScanScreen> {
   bool _scanned = false;
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings(ref.watch(localeProvider));
     return Scaffold(
-      appBar: AppBar(title: const Text('Scan QR code')),
+      appBar: AppBar(title: Text(s.scanQrCode)),
       body: Stack(
         children: [
           MobileScanner(
@@ -1412,14 +1449,14 @@ class _QrScanScreenState extends State<_QrScanScreen> {
               ),
             ),
           ),
-          const Positioned(
+          Positioned(
             bottom: 40,
             left: 0,
             right: 0,
             child: Text(
-              'Point camera at QR code',
+              s.pointCameraAtQr,
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white, fontSize: 16),
+              style: const TextStyle(color: Colors.white, fontSize: 16),
             ),
           ),
         ],
