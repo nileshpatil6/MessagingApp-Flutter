@@ -46,6 +46,7 @@ class _GroupConversationScreenState
   bool _isSearching = false;
   String _searchQuery = '';
   bool _isSelectionMode = false;
+  bool _dismissedPinnedBanner = false;
   final Set<String> _selectedIds = {};
   RemoteMessage? _replyTo;
 
@@ -206,6 +207,7 @@ class _GroupConversationScreenState
           .map((e) => RemoteMessage.fromJson(Map<String, dynamic>.from(e)))
           .toList();
       ref.read(messagesProvider(widget.group.groupId).notifier).applyPinList(pinned);
+      if (mounted) setState(() => _dismissedPinnedBanner = false);
     };
     socket.on(AppConstants.pvMessagePinList, _onMessagePinList);
 
@@ -643,6 +645,7 @@ class _GroupConversationScreenState
             Column(
               children: [
                 if (_isSearching) _buildSearchBar(colorScheme),
+                if (!_dismissedPinnedBanner) _buildPinnedBanner(allMessages, colorScheme),
                 Expanded(
                   child: ListView.builder(
                     controller: _scrollController,
@@ -668,6 +671,69 @@ class _GroupConversationScreenState
             // LINE-style floating action overlay — no blur, same z-level
             if (_contextMsg != null && _contextMenuOffset != null)
               _buildContextOverlay(_contextMsg!, _contextMenuOffset!, colorScheme),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPinnedBanner(List<RemoteMessage> messages, ColorScheme colorScheme) {
+    final pinned = messages.where((m) => m.isPin == 1).toList()
+      ..sort((a, b) => (b.pinTime ?? '').compareTo(a.pinTime ?? ''));
+    if (pinned.isEmpty) return const SizedBox.shrink();
+    final latest = pinned.first;
+    final s = _s;
+    final preview = latest.typeMessage == AppConstants.typeImage
+        ? '📷 Image'
+        : latest.typeMessage == AppConstants.typeVideo
+            ? '🎥 ${s.video}'
+            : latest.typeMessage == AppConstants.typeFile
+                ? '📎 ${s.file}'
+                : (latest.messageContent ?? '');
+    return GestureDetector(
+      onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+              builder: (_) =>
+                  PinMessagesScreen(roomId: widget.group.groupId))),
+      child: Container(
+        decoration: BoxDecoration(
+          color: colorScheme.surfaceContainerHighest,
+          border: Border(
+            left: const BorderSide(color: Colors.orange, width: 3),
+            bottom: BorderSide(color: colorScheme.outlineVariant, width: 0.5),
+          ),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: Row(
+          children: [
+            const Icon(Icons.push_pin, size: 14, color: Colors.orange),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    s.pinnedLabel,
+                    style: const TextStyle(
+                        fontSize: 10,
+                        color: Colors.orange,
+                        fontWeight: FontWeight.w600),
+                  ),
+                  Text(
+                    preview,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 13, color: colorScheme.onSurface),
+                  ),
+                ],
+              ),
+            ),
+            GestureDetector(
+              onTap: () => setState(() => _dismissedPinnedBanner = true),
+              child: Icon(Icons.close, size: 16, color: colorScheme.outline),
+            ),
           ],
         ),
       ),

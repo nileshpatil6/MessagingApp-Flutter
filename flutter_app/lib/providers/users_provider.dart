@@ -6,22 +6,26 @@ class UsersState {
   final List<ChatUser> users;
   final String myDeviceId;
   final String myName;
+  final String? myIcon;
 
   const UsersState({
     this.users = const [],
     this.myDeviceId = '',
     this.myName = '',
+    this.myIcon,
   });
 
   UsersState copyWith({
     List<ChatUser>? users,
     String? myDeviceId,
     String? myName,
+    String? myIcon,
   }) {
     return UsersState(
       users: users ?? this.users,
       myDeviceId: myDeviceId ?? this.myDeviceId,
       myName: myName ?? this.myName,
+      myIcon: myIcon ?? this.myIcon,
     );
   }
 }
@@ -68,6 +72,18 @@ class UsersNotifier extends StateNotifier<UsersState> {
 
   void setMyName(String name) {
     state = state.copyWith(myName: name);
+  }
+
+  Future<void> setMyIcon(String url) async {
+    state = state.copyWith(myIcon: url);
+    await LocalStorage.setMyIcon(url);
+  }
+
+  Future<void> loadMyIcon() async {
+    final url = await LocalStorage.getMyIcon();
+    if (url != null && url.isNotEmpty) {
+      state = state.copyWith(myIcon: url);
+    }
   }
 
   // ── Per-user mutations ────────────────────────────────────────────────────
@@ -163,6 +179,7 @@ class UsersNotifier extends StateNotifier<UsersState> {
       await LocalStorage.addKnownUserId(user.deviceId);
       await LocalStorage.saveUserPrefs(user.deviceId, {
         'display_name': user.name,
+        'icon': user.icon,
         'is_pinned': user.isPinned,
         'is_hidden': user.isHidden,
         'is_blocked': user.isBlocked,
@@ -186,6 +203,7 @@ class UsersNotifier extends StateNotifier<UsersState> {
       u.isMuted = prefs['is_muted'] ?? false;
       u.customName = prefs['custom_name'];
       u.customIcon = prefs['custom_icon'];
+      if (prefs['icon'] != null) u.icon = prefs['icon'];
       u.lastMessage = prefs['last_message'];
       final timeStr = prefs['last_message_time']?.toString();
       if (timeStr != null) u.lastMessageTime = DateTime.tryParse(timeStr);
@@ -219,6 +237,7 @@ class UsersNotifier extends StateNotifier<UsersState> {
       user.isMuted = prefs['is_muted'] ?? false;
       user.customName = prefs['custom_name'];
       user.customIcon = prefs['custom_icon'];
+      user.icon = prefs['icon'];
       user.lastMessage = prefs['last_message'];
       final timeStr = prefs['last_message_time']?.toString();
       if (timeStr != null) user.lastMessageTime = DateTime.tryParse(timeStr);

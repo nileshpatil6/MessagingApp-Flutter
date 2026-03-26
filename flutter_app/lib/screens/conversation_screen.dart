@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -51,6 +52,8 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
   final Set<String> _selectedIds = {};
   RemoteMessage? _replyTo;
   String? _deadTime;
+  Timer? _countdownTimer;
+  bool _dismissedPinnedBanner = false;
 
   AppStrings get _s => AppStrings(ref.read(localeProvider));
 
@@ -106,6 +109,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
 
     _joinRoom();
     _listenToSocket();
+    _startCountdownTimer();
   }
 
   void _joinRoom() {
@@ -188,7 +192,12 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
       final raw = Map<String, dynamic>.from(parsed);
       final tempId = raw['_tempId']?.toString();
       // Status 1 = sent (server confirmed); history will promote to delivered
-      final msg = RemoteMessage.fromJson(raw).copyWith(status: AppConstants.statusSent);
+      final baseMsg = RemoteMessage.fromJson(raw).copyWith(status: AppConstants.statusSent);
+      // Convert dead_time backend constant → absolute expiry ISO for countdown
+      final expiryIso = _computeExpiryIso(baseMsg.deadTime);
+      final msg = expiryIso != null
+          ? baseMsg.copyWith(deadTime: expiryIso)
+          : baseMsg;
 
       // Only process messages for this room
       final msgRoomId = msg.roomId?.toString() ?? '';
@@ -262,6 +271,8 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
           .map((e) => RemoteMessage.fromJson(Map<String, dynamic>.from(e)))
           .toList();
       ref.read(messagesProvider(_roomId).notifier).applyPinList(pinned);
+      // Re-show pinned banner whenever pin state changes
+      if (mounted) setState(() => _dismissedPinnedBanner = false);
     };
     socket.on(AppConstants.pvMessagePinList, _onMessagePinList);
 
@@ -368,6 +379,84 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
     return null;
   }
 
+  // ── Countdown helpers ─────────────────────────────────────────────────────
+
+  /// Converts dead_time (UI shorthand, backend constant, or ISO date) to an
+  /// absolute ISO expiry datetime string. Returns null if no/off timer.
+  static String? _computeExpiryIso(String? dt) {
+    if (dt == null || dt == 'off') return null;
+    // Already an absolute ISO datetime
+    if (dt.contains('T')) return DateTime.tryParse(dt)?.toIso8601String();
+    // Backend constants
+    const backendMap = {
+      'FIVE_SECONDS': Duration(seconds: 5),
+      'THIRTY_SECONDS': Duration(seconds: 30),
+      'ONE_MINUTE': Duration(minutes: 1),
+      'FIVE_MINUTES': Duration(minutes: 5),
+      'THIRTY_MINUTES': Duration(minutes: 30),
+      'ONE_HOUR': Duration(hours: 1),
+      'ONE_DAY_LATER': Duration(days: 1),
+      'ONE_WEEK_LATER': Duration(days: 7),
+      'ONE_MONTH_LATER': Duration(days: 30),
+    };
+    if (backendMap.containsKey(dt)) {
+      return DateTime.now().add(backendMap[dt]!).toIso8601String();
+    }
+    // CUSTOM:<seconds> backend format
+    if (dt.startsWith('CUSTOM:')) {
+      final secs = int.tryParse(dt.substring(7));
+      if (secs != null) return DateTime.now().add(Duration(seconds: secs)).toIso8601String();
+    }
+    // UI shorthands
+    const uiMap = {
+      '5s': Duration(seconds: 5),
+      '30s': Duration(seconds: 30),
+      '1m': Duration(minutes: 1),
+      '5m': Duration(minutes: 5),
+      '30m': Duration(minutes: 30),
+      '1h': Duration(hours: 1),
+      '1d': Duration(days: 1),
+      '7d': Duration(days: 7),
+      '30d': Duration(days: 30),
+    };
+    if (uiMap.containsKey(dt)) {
+      return DateTime.now().add(uiMap[dt]!).toIso8601String();
+    }
+    // Custom hours: 'Nh'
+    if (dt.endsWith('h')) {
+      final hours = int.tryParse(dt.substring(0, dt.length - 1));
+      if (hours != null) return DateTime.now().add(Duration(hours: hours)).toIso8601String();
+    }
+    return null;
+  }
+
+  String _formatCountdown(Duration d) {
+    if (d.inDays >= 1) return '${d.inDays}d';
+    if (d.inHours >= 1) return '${d.inHours}h ${d.inMinutes % 60}m';
+    if (d.inMinutes >= 1) return '${d.inMinutes}m ${d.inSeconds % 60}s';
+    return '${d.inSeconds}s';
+  }
+
+  void _startCountdownTimer() {
+    _countdownTimer?.cancel();
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted || _roomId.isEmpty) return;
+      // Remove locally expired messages
+      final msgs = ref.read(messagesProvider(_roomId));
+      final now = DateTime.now();
+      for (final msg in msgs) {
+        if (msg.deadTime != null) {
+          final expiry = DateTime.tryParse(msg.deadTime!);
+          if (expiry != null && expiry.isBefore(now)) {
+            ref.read(messagesProvider(_roomId).notifier).removeMessage(
+                msg.messageId ?? '');
+          }
+        }
+      }
+      setState(() {});
+    });
+  }
+
   // ── Send ──────────────────────────────────────────────────────────────────
 
   void _sendTextMessage() {
@@ -375,6 +464,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
     if (text.isEmpty || _roomId.isEmpty) return;
 
     final mappedDeadTime = _mapDeadTime(_deadTime);
+    final expiryIso = _computeExpiryIso(_deadTime);
     final tempId = 'sending_${DateTime.now().millisecondsSinceEpoch}';
     final tempMsg = RemoteMessage(
       messageId: tempId,
@@ -384,6 +474,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
       senderDeviceId: _myDeviceId,
       receiverDeviceId: widget.user.deviceId,
       createdAt: DateTime.now().toIso8601String(),
+      deadTime: expiryIso,
       status: AppConstants.statusSending,
     );
     ref.read(messagesProvider(_roomId).notifier).addMessage(tempMsg);
@@ -409,6 +500,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
   void _sendMediaMessage(String url, int type) {
     if (_roomId.isEmpty) return;
     final mappedDeadTime = _mapDeadTime(_deadTime);
+    final expiryIso = _computeExpiryIso(_deadTime);
     final tempId = 'sending_${DateTime.now().millisecondsSinceEpoch}';
     final tempMsg = RemoteMessage(
       messageId: tempId,
@@ -418,6 +510,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
       senderDeviceId: _myDeviceId,
       receiverDeviceId: widget.user.deviceId,
       createdAt: DateTime.now().toIso8601String(),
+      deadTime: expiryIso,
       status: AppConstants.statusSending,
     );
     ref.read(messagesProvider(_roomId).notifier).addMessage(tempMsg);
@@ -644,6 +737,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
     SocketClient.instance.off(AppConstants.pvAutoJoinRoom, _onAutoJoinRoom);
     SocketClient.instance.off(AppConstants.pvMessageRead, _onMessageRead);
     SocketClient.instance.off(AppConstants.pvMessageDelivered, _onMessageDelivered);
+    _countdownTimer?.cancel();
     _textController.dispose();
     _searchController.dispose();
     _scrollController.dispose();
@@ -685,6 +779,8 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
           children: [
             // Search bar
             if (_isSearching) _buildSearchBar(colorScheme),
+            // Pinned message banner
+            if (!_dismissedPinnedBanner) _buildPinnedBanner(allMessages, colorScheme),
             // Self-destruct badge
             if (_deadTime != null && _deadTime != 'off')
               _buildDestructBadge(colorScheme),
@@ -1058,6 +1154,9 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                               ],
                             ],
                           ),
+                          // Self-destruct countdown
+                          if (msg.deadTime != null)
+                            _buildCountdown(msg),
                         ],
                       ),
                     ),
@@ -1067,6 +1166,84 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
               if (isMe) const SizedBox(width: 8),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCountdown(RemoteMessage msg) {
+    final expiry = DateTime.tryParse(msg.deadTime!);
+    if (expiry == null) return const SizedBox.shrink();
+    final remaining = expiry.difference(DateTime.now());
+    if (remaining.isNegative) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.local_fire_department, size: 10, color: Colors.red.shade400),
+          const SizedBox(width: 2),
+          Text(
+            _formatCountdown(remaining),
+            style: TextStyle(fontSize: 10, color: Colors.red.shade400, fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPinnedBanner(List<RemoteMessage> messages, ColorScheme colorScheme) {
+    final pinned = messages.where((m) => m.isPin == 1).toList()
+      ..sort((a, b) => (b.pinTime ?? '').compareTo(a.pinTime ?? ''));
+    if (pinned.isEmpty) return const SizedBox.shrink();
+    final latest = pinned.first;
+    final preview = latest.typeMessage == AppConstants.typeImage
+        ? '📷 ${_s.uploadingImage.replaceAll('…', '')}'
+        : latest.typeMessage == AppConstants.typeVideo
+            ? '🎥 ${_s.video}'
+            : latest.typeMessage == AppConstants.typeFile
+                ? '📎 ${_s.file}'
+                : (latest.messageContent ?? '');
+    return GestureDetector(
+      onTap: () => Navigator.push(context,
+          MaterialPageRoute(builder: (_) => PinMessagesScreen(roomId: _roomId))),
+      child: Container(
+        decoration: BoxDecoration(
+          color: colorScheme.surfaceContainerHighest,
+          border: Border(
+            left: const BorderSide(color: Colors.orange, width: 3),
+            bottom: BorderSide(color: colorScheme.outlineVariant, width: 0.5),
+          ),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: Row(
+          children: [
+            const Icon(Icons.push_pin, size: 14, color: Colors.orange),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _s.pinnedLabel,
+                    style: const TextStyle(
+                        fontSize: 10, color: Colors.orange, fontWeight: FontWeight.w600),
+                  ),
+                  Text(
+                    preview,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 13, color: colorScheme.onSurface),
+                  ),
+                ],
+              ),
+            ),
+            GestureDetector(
+              onTap: () => setState(() => _dismissedPinnedBanner = true),
+              child: Icon(Icons.close, size: 16, color: colorScheme.outline),
+            ),
+          ],
         ),
       ),
     );

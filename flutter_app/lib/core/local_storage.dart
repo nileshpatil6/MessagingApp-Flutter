@@ -247,6 +247,18 @@ class LocalStorage {
     return decoded.map((e) => Map<String, dynamic>.from(e)).toList();
   }
 
+  // ── MY PROFILE ────────────────────────────────
+
+  static Future<void> setMyIcon(String url) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('my_icon', url);
+  }
+
+  static Future<String?> getMyIcon() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('my_icon');
+  }
+
   // ── LANGUAGE ──────────────────────────────────
 
   /// Returns true if Japanese is selected (default).

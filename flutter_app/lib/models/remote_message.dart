@@ -56,12 +56,13 @@ class RemoteMessage {
     int? status,
     int? isPin,
     String? pinTime,
+    String? deadTime,
   }) {
     return RemoteMessage(
       messageId: messageId ?? this.messageId,
       roomId: roomId,
       messageContent: messageContent ?? this.messageContent,
-      deadTime: deadTime,
+      deadTime: deadTime ?? this.deadTime,
       senderDeviceId: senderDeviceId,
       receiverDeviceId: receiverDeviceId,
       typeMessage: typeMessage,

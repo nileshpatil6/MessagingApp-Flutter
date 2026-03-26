@@ -69,6 +69,9 @@ class _MainScreenState extends ConsumerState<MainScreen>
     // Pre-populate list with previously seen users so offline users stay visible
     await ref.read(usersProvider.notifier).loadPersistedUsers();
 
+    // Load own icon
+    await ref.read(usersProvider.notifier).loadMyIcon();
+
     _connectAndListen();
   }
 
@@ -117,11 +120,22 @@ class _MainScreenState extends ConsumerState<MainScreen>
       final newName = parsed['name']?.toString();
       final newIcon = parsed['icon']?.toString();
       if (deviceId != null) {
-        ref.read(usersProvider.notifier).updateRemoteUser(
-              deviceId,
-              name: newName,
-              icon: newIcon,
-            );
+        final myId = ref.read(usersProvider).myDeviceId;
+        if (deviceId == myId) {
+          // Server echoed our own update back — sync local icon/name
+          if (newIcon != null && newIcon.isNotEmpty) {
+            ref.read(usersProvider.notifier).setMyIcon(newIcon);
+          }
+          if (newName != null && newName.isNotEmpty) {
+            ref.read(usersProvider.notifier).setMyName(newName);
+          }
+        } else {
+          ref.read(usersProvider.notifier).updateRemoteUser(
+                deviceId,
+                name: newName,
+                icon: newIcon,
+              );
+        }
       }
     });
 
@@ -1128,6 +1142,8 @@ class _MainScreenState extends ConsumerState<MainScreen>
         }
         if (uploadedPath != null) {
           final url = '${AppConstants.serverUrl}/public/$uploadedPath';
+          // Update own icon locally immediately (server echo may not come back to sender)
+          await ref.read(usersProvider.notifier).setMyIcon(url);
           SocketClient.instance.emit(AppConstants.pvUpdateUserName, {
             'name': ref.read(usersProvider).myName,
             'icon': url,
@@ -1366,12 +1382,17 @@ class _MainScreenState extends ConsumerState<MainScreen>
                 children: [
                   CircleAvatar(
                     radius: 32,
-                    child: Text(
-                      state.myName.isNotEmpty
-                          ? state.myName[0].toUpperCase()
-                          : 'M',
-                      style: const TextStyle(fontSize: 24),
-                    ),
+                    backgroundImage: state.myIcon != null
+                        ? NetworkImage(state.myIcon!)
+                        : null,
+                    child: state.myIcon == null
+                        ? Text(
+                            state.myName.isNotEmpty
+                                ? state.myName[0].toUpperCase()
+                                : 'M',
+                            style: const TextStyle(fontSize: 24),
+                          )
+                        : null,
                   ),
                   const SizedBox(height: 8),
                   Text(state.myName,
