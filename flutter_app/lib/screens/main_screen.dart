@@ -1171,18 +1171,17 @@ class _MainScreenState extends ConsumerState<MainScreen>
       );
       if (response.statusCode == 200) {
         final data = response.data;
-        String? uploadedPath;
+        String? url;
         if (data is Map) {
-          uploadedPath = data['file']?.toString() ??
-              data['url']?.toString() ??
-              (data['files'] is List
-                  ? (data['files'] as List).first?.toString()
-                  : null);
-        } else if (data is List && data.isNotEmpty) {
-          uploadedPath = data.first?.toString();
+          final files = data['files'];
+          if (files is List && files.isNotEmpty && files[0] is Map) {
+            final relUrl = (files[0] as Map)['url']?.toString();
+            if (relUrl != null && relUrl.isNotEmpty) {
+              url = '${AppConstants.serverUrl}$relUrl';
+            }
+          }
         }
-        if (uploadedPath != null) {
-          final url = '${AppConstants.serverUrl}/public/$uploadedPath';
+        if (url != null) {
           // Update own icon locally immediately (server echo may not come back to sender)
           await ref.read(usersProvider.notifier).setMyIcon(url);
           SocketClient.instance.emit(AppConstants.pvUpdateUserName, {

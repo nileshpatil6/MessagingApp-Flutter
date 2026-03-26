@@ -1549,9 +1549,8 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                 }
                 final url = await _uploadFile(xFile.path);
                 if (url != null) {
-                  _sendMediaMessage(
-                      '${AppConstants.serverUrl}/public/$url',
-                      AppConstants.typeImage);
+                  // _uploadFile already returns the full URL
+                  _sendMediaMessage(url, AppConstants.typeImage);
                 }
               },
             ),

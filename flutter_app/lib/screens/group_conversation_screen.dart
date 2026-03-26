@@ -1694,8 +1694,8 @@ class _GroupConversationScreenState
                 }
                 final url = await _uploadFile(xFile.path);
                 if (url != null) {
-                  _sendMessage('${AppConstants.serverUrl}/public/$url',
-                      AppConstants.typeImage);
+                  // _uploadFile already returns the full URL
+                  _sendMessage(url, AppConstants.typeImage);
                 }
               },
             ),

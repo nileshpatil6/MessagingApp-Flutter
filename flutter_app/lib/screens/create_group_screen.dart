@@ -60,19 +60,19 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
       );
       if (response.statusCode == 200) {
         final data = response.data;
-        String? uploadedPath;
+        String? iconUrl;
         if (data is Map) {
-          uploadedPath = data['file']?.toString() ??
-              data['url']?.toString() ??
-              (data['files'] is List
-                  ? (data['files'] as List).first?.toString()
-                  : null);
-        } else if (data is List && data.isNotEmpty) {
-          uploadedPath = data.first?.toString();
+          final files = data['files'];
+          if (files is List && files.isNotEmpty && files[0] is Map) {
+            final relUrl = (files[0] as Map)['url']?.toString();
+            if (relUrl != null && relUrl.isNotEmpty) {
+              iconUrl = '${AppConstants.serverUrl}$relUrl';
+            }
+          }
         }
-        if (uploadedPath != null) {
+        if (iconUrl != null) {
           setState(() {
-            _iconUrl = '${AppConstants.serverUrl}/public/$uploadedPath';
+            _iconUrl = iconUrl;
             _isUploadingIcon = false;
           });
           return;
