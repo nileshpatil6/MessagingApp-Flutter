@@ -158,6 +158,8 @@ class _GroupConversationScreenState
       // System message handling
       if (content.contains(AppConstants.grpNamePrefix)) {
         _handleGroupNameChange(content);
+      } else if (content.contains(AppConstants.grpIconPrefix)) {
+        _handleGroupIconChange(content);
       } else if (content.contains(AppConstants.grpLeavePrefix)) {
         _handleMemberLeave(content, msg.senderDeviceId ?? '');
       }
@@ -255,6 +257,55 @@ class _GroupConversationScreenState
         }
       }
     } catch (_) {}
+  }
+
+  void _handleGroupIconChange(String content) {
+    // [GRP_ICON:{groupId}:{url}]
+    try {
+      final inner = content.substring(
+          AppConstants.grpIconPrefix.length, content.length - 1);
+      final colonIdx = inner.indexOf(':');
+      if (colonIdx >= 0) {
+        final gid = inner.substring(0, colonIdx);
+        final url = inner.substring(colonIdx + 1);
+        if (gid == widget.group.groupId) {
+          ref.read(groupsProvider.notifier).updateGroupIcon(gid, url);
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _changeGroupIcon(BuildContext context) async {
+    final picker = ImagePicker();
+    final picked = await picker.pickImage(source: ImageSource.gallery);
+    if (picked == null) return;
+
+    try {
+      final dio = Dio();
+      final formData = FormData.fromMap({
+        'file': await MultipartFile.fromFile(picked.path,
+            filename: picked.name),
+      });
+      final resp = await dio.post(
+        AppConstants.uploadFileChatUrl,
+        data: formData,
+      );
+      final url = (resp.data is Map)
+          ? resp.data['url']?.toString()
+          : resp.data?.toString();
+      if (url == null || url.isEmpty) return;
+
+      final changeMsg =
+          '${AppConstants.grpIconPrefix}${widget.group.groupId}:$url]';
+      _sendMessage(changeMsg, AppConstants.typeText);
+      ref.read(groupsProvider.notifier).updateGroupIcon(widget.group.groupId, url);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(_s.uploadFailed)),
+        );
+      }
+    }
   }
 
   void _handleMemberLeave(String content, String senderId) {
@@ -967,6 +1018,7 @@ class _GroupConversationScreenState
             if (val == 'leave') _leaveGroup();
             if (val == 'members') _showMemberList(context, group);
             if (val == 'rename') _renameGroup(context, group);
+            if (val == 'icon') _changeGroupIcon(context);
             if (val == 'delete') _deleteGroup(context);
             if (val == 'pins') {
               Navigator.push(
@@ -985,6 +1037,9 @@ class _GroupConversationScreenState
                 value: 'pins', child: Text(s.pinnedMessages)),
             PopupMenuItem(
                 value: 'rename', child: Text(s.renameGroup)),
+            if (group.adminId == _myDeviceId)
+              PopupMenuItem(
+                  value: 'icon', child: Text(s.changeIcon)),
             PopupMenuItem(
                 value: 'leave',
                 child: Text(s.leaveGroup,
