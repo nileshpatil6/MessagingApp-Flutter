@@ -54,6 +54,8 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
   String? _deadTime;
   Timer? _countdownTimer;
   bool _dismissedPinnedBanner = false;
+  /// tempId → local file path while upload is in progress
+  final Map<String, String> _uploadingLocalPaths = {};
 
   AppStrings get _s => AppStrings(ref.read(localeProvider));
 
@@ -560,59 +562,75 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
 
   Future<void> _pickImage() async {
     final xFile = await _imagePicker.pickImage(source: ImageSource.gallery);
-    if (xFile == null) return;
-    if (mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(_s.uploadingImage)));
-    }
-    final url = await _uploadFile(xFile.path);
-    if (url != null) {
-      _sendMediaMessage('${AppConstants.serverUrl}/public/$url',
-          AppConstants.typeImage);
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(_s.uploadFailed)));
-      }
-    }
+    if (xFile == null || _roomId.isEmpty) return;
+    await _uploadAndSendMedia(xFile.path, AppConstants.typeImage);
   }
 
   Future<void> _pickVideo() async {
     final xFile = await _imagePicker.pickVideo(source: ImageSource.gallery);
-    if (xFile == null) return;
-    if (mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(_s.uploadingVideo)));
-    }
-    final url = await _uploadFile(xFile.path);
-    if (url != null) {
-      _sendMediaMessage('${AppConstants.serverUrl}/public/$url',
-          AppConstants.typeVideo);
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(_s.uploadFailed)));
-      }
-    }
+    if (xFile == null || _roomId.isEmpty) return;
+    await _uploadAndSendMedia(xFile.path, AppConstants.typeVideo);
   }
 
   Future<void> _pickFile() async {
     final result = await FilePicker.platform.pickFiles();
-    if (result == null || result.files.single.path == null) return;
-    if (mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(_s.uploadingFile)));
+    if (result == null || result.files.single.path == null || _roomId.isEmpty) return;
+    await _uploadAndSendMedia(result.files.single.path!, AppConstants.typeFile);
+  }
+
+  /// Shows the media in chat immediately with a spinner, uploads, then sends.
+  Future<void> _uploadAndSendMedia(String localPath, int type) async {
+    final tempId = 'sending_${DateTime.now().millisecondsSinceEpoch}';
+    // 1. Show in chat immediately with local path + spinner
+    setState(() => _uploadingLocalPaths[tempId] = localPath);
+    await ref.read(messagesProvider(_roomId).notifier).addMessage(RemoteMessage(
+      messageId: tempId,
+      roomId: _roomId,
+      messageContent: localPath,
+      typeMessage: type,
+      senderDeviceId: _myDeviceId,
+      receiverDeviceId: widget.user.deviceId,
+      createdAt: DateTime.now().toIso8601String(),
+      status: AppConstants.statusSending,
+    ));
+    _scrollToBottom();
+
+    // 2. Upload
+    final filename = await _uploadFile(localPath);
+    if (!mounted) return;
+    setState(() => _uploadingLocalPaths.remove(tempId));
+
+    if (filename == null) {
+      ref.read(messagesProvider(_roomId).notifier).removeMessage(tempId);
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(_s.uploadFailed)));
+      return;
     }
-    final url = await _uploadFile(result.files.single.path!);
-    if (url != null) {
-      _sendMediaMessage('${AppConstants.serverUrl}/public/$url',
-          AppConstants.typeFile);
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(_s.uploadFailed)));
-      }
-    }
+
+    // 3. Compute deadTime AFTER upload so timer starts from send time
+    final url = '${AppConstants.serverUrl}/public/$filename';
+    final expiryIso = _computeExpiryIso(_deadTime);
+    final mappedDeadTime = _mapDeadTime(_deadTime);
+
+    // Update the bubble: replace local path with real URL + set deadTime
+    ref.read(messagesProvider(_roomId).notifier).updateMessageContent(
+      tempId, url,
+      status: AppConstants.statusSending,
+      deadTime: expiryIso,
+    );
+
+    // 4. Emit socket
+    SocketClient.instance.emit(AppConstants.pvSendMessage, {
+      'room_id': _roomId,
+      'message_content': url,
+      'type_message': type,
+      'sender_device_id': _myDeviceId,
+      'receiver_device_id': widget.user.deviceId,
+      '_tempId': tempId,
+      if (_replyTo?.messageId != null) 'reply_message_id': _replyTo!.messageId,
+      if (mappedDeadTime != null) 'dead_time': mappedDeadTime,
+    });
+    setState(() => _replyTo = null);
   }
 
   // ── Delete ────────────────────────────────────────────────────────────────
@@ -1273,8 +1291,35 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
   }
 
   Widget _buildMessageContent(RemoteMessage msg, ColorScheme colorScheme) {
+    final isUploading = _uploadingLocalPaths.containsKey(msg.messageId);
+    final localPath = _uploadingLocalPaths[msg.messageId];
+
     switch (msg.typeMessage) {
       case AppConstants.typeImage:
+        if (isUploading && localPath != null) {
+          return SizedBox(
+            width: 200,
+            height: 200,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.file(File(localPath), fit: BoxFit.cover),
+                ),
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.black45,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Center(
+                    child: CircularProgressIndicator(color: Colors.white),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
         return GestureDetector(
           onTap: () => Navigator.push(
             context,
@@ -1297,7 +1342,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
 
       case AppConstants.typeVideo:
         return GestureDetector(
-          onTap: () => Navigator.push(
+          onTap: isUploading ? null : () => Navigator.push(
             context,
             MaterialPageRoute(
               builder: (_) =>
@@ -1315,17 +1360,17 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                   borderRadius: BorderRadius.circular(8),
                 ),
               ),
-              const Icon(Icons.play_circle_filled,
-                  size: 48, color: Colors.white),
-              Positioned(
-                bottom: 8,
-                left: 8,
-                child: Text(
-                  _s.video,
-                  style:
-                      const TextStyle(color: Colors.white, fontSize: 12),
+              if (isUploading)
+                const CircularProgressIndicator(color: Colors.white)
+              else ...[
+                const Icon(Icons.play_circle_filled, size: 48, color: Colors.white),
+                Positioned(
+                  bottom: 8,
+                  left: 8,
+                  child: Text(_s.video,
+                      style: const TextStyle(color: Colors.white, fontSize: 12)),
                 ),
-              ),
+              ],
             ],
           ),
         );
@@ -1334,20 +1379,28 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.insert_drive_file, size: 36),
+            isUploading
+                ? const SizedBox(
+                    width: 36,
+                    height: 36,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.insert_drive_file, size: 36),
             const SizedBox(width: 8),
             Flexible(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    msg.messageContent?.split('/').last ?? 'File',
+                    msg.messageContent?.split('/').last ??
+                        msg.messageContent?.split(Platform.pathSeparator).last ??
+                        'File',
                     style: const TextStyle(fontWeight: FontWeight.w500),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  Text(_s.tapToDownload,
-                      style: const TextStyle(fontSize: 11)),
+                  Text(
+                    isUploading ? _s.uploading : _s.tapToDownload,
+                    style: const TextStyle(fontSize: 11)),
                 ],
               ),
             ),

@@ -133,6 +133,24 @@ class MessagesNotifier extends StateNotifier<List<RemoteMessage>> {
     _applyPendingStatus(real.messageId!);
   }
 
+  /// Update content, status and/or deadTime of an existing message in-place.
+  void updateMessageContent(
+    String id,
+    String newContent, {
+    int? status,
+    String? deadTime,
+  }) {
+    state = state.map((m) {
+      if (m.messageId != id) return m;
+      return m.copyWith(
+        messageContent: newContent,
+        status: status ?? m.status,
+        deadTime: deadTime ?? m.deadTime,
+      );
+    }).toList();
+    LocalStorage.saveCachedMessages(roomId, state.map((m) => m.toJson()).toList());
+  }
+
   void _applyPendingStatus(String msgId) async {
     final saved = await LocalStorage.getMessageStatuses(roomId);
     final status = saved[msgId];

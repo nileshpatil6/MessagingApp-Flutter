@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -48,6 +49,9 @@ class _GroupConversationScreenState
   bool _isSelectionMode = false;
   bool _dismissedPinnedBanner = false;
   final Set<String> _selectedIds = {};
+  /// tempId → local file path while upload is in progress
+  final Map<String, String> _uploadingLocalPaths = {};
+  Timer? _countdownTimer;
   RemoteMessage? _replyTo;
 
   // Floating context menu state (no blur overlay — LINE style)
@@ -82,6 +86,7 @@ class _GroupConversationScreenState
         .read(messagesProvider(widget.group.groupId).notifier)
         .loadCached();
     _listenToSocket();
+    _startCountdownTimer();
     ref.read(groupsProvider.notifier).clearUnread(widget.group.groupId);
 
     // Tell senders that I've read their messages (→ double blue tick for them)
@@ -137,11 +142,13 @@ class _GroupConversationScreenState
       final localId = msg.messageId ??
           '${msg.senderDeviceId}_${msg.createdAt ?? DateTime.now().millisecondsSinceEpoch}';
 
+      // Convert backend dead_time constant → absolute ISO for countdown timer
+      final expiryIso = _computeExpiryIso(msg.deadTime);
       final displayMsg = RemoteMessage(
         messageId: localId,
         roomId: msg.roomId,
         messageContent: strippedContent,
-        deadTime: msg.deadTime,
+        deadTime: expiryIso ?? msg.deadTime,
         senderDeviceId: msg.senderDeviceId,
         typeMessage: msg.typeMessage,
         createdAt: msg.createdAt,
@@ -283,17 +290,20 @@ class _GroupConversationScreenState
     try {
       final dio = Dio();
       final formData = FormData.fromMap({
-        'file': await MultipartFile.fromFile(picked.path,
-            filename: picked.name),
+        'files': await MultipartFile.fromFile(
+            picked.path,
+            filename: picked.path.split(Platform.pathSeparator).last),
       });
-      final resp = await dio.post(
-        AppConstants.uploadFileChatUrl,
-        data: formData,
-      );
-      final url = (resp.data is Map)
-          ? resp.data['url']?.toString()
-          : resp.data?.toString();
-      if (url == null || url.isEmpty) return;
+      final resp = await dio.post(AppConstants.uploadFileChatUrl, data: formData);
+      String? filename;
+      if (resp.statusCode == 200 && resp.data is Map) {
+        final files = resp.data['files'];
+        if (files is List && files.isNotEmpty) {
+          filename = files[0]['filename']?.toString();
+        }
+      }
+      if (filename == null || filename.isEmpty) return;
+      final url = '${AppConstants.serverUrl}/public/$filename';
 
       final changeMsg =
           '${AppConstants.grpIconPrefix}${widget.group.groupId}:$url]';
@@ -378,11 +388,90 @@ class _GroupConversationScreenState
     _sendMessage(text, AppConstants.typeText);
   }
 
+  // ── Countdown helpers (self-destruct) ─────────────────────────────────────
+
+  static String? _computeExpiryIso(String? dt) {
+    if (dt == null || dt == 'off') return null;
+    if (dt.contains('T')) return DateTime.tryParse(dt)?.toIso8601String();
+    const backendMap = {
+      'FIVE_SECONDS': Duration(seconds: 5),
+      'THIRTY_SECONDS': Duration(seconds: 30),
+      'ONE_MINUTE': Duration(minutes: 1),
+      'FIVE_MINUTES': Duration(minutes: 5),
+      'THIRTY_MINUTES': Duration(minutes: 30),
+      'ONE_HOUR': Duration(hours: 1),
+      'ONE_DAY_LATER': Duration(days: 1),
+      'ONE_WEEK_LATER': Duration(days: 7),
+      'ONE_MONTH_LATER': Duration(days: 30),
+    };
+    if (backendMap.containsKey(dt)) {
+      return DateTime.now().add(backendMap[dt]!).toIso8601String();
+    }
+    if (dt.startsWith('CUSTOM:')) {
+      final secs = int.tryParse(dt.substring(7));
+      if (secs != null) return DateTime.now().add(Duration(seconds: secs)).toIso8601String();
+    }
+    return null;
+  }
+
+  String _formatCountdown(Duration d) {
+    if (d.inDays >= 1) return '${d.inDays}d';
+    if (d.inHours >= 1) return '${d.inHours}h ${d.inMinutes % 60}m';
+    if (d.inMinutes >= 1) return '${d.inMinutes}m ${d.inSeconds % 60}s';
+    return '${d.inSeconds}s';
+  }
+
+  void _startCountdownTimer() {
+    _countdownTimer?.cancel();
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      final msgs = ref.read(messagesProvider(widget.group.groupId));
+      final now = DateTime.now();
+      for (final msg in msgs) {
+        if (msg.deadTime != null) {
+          final expiry = DateTime.tryParse(msg.deadTime!);
+          if (expiry != null && expiry.isBefore(now)) {
+            ref
+                .read(messagesProvider(widget.group.groupId).notifier)
+                .removeMessage(msg.messageId ?? '');
+          }
+        }
+      }
+      setState(() {});
+    });
+  }
+
+  Widget _buildCountdown(RemoteMessage msg) {
+    final expiry = DateTime.tryParse(msg.deadTime!);
+    if (expiry == null) return const SizedBox.shrink();
+    final remaining = expiry.difference(DateTime.now());
+    if (remaining.isNegative) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.local_fire_department, size: 10, color: Colors.red.shade400),
+          const SizedBox(width: 2),
+          Text(
+            _formatCountdown(remaining),
+            style: TextStyle(
+                fontSize: 10,
+                color: Colors.red.shade400,
+                fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Upload & send media ────────────────────────────────────────────────────
+
   Future<String?> _uploadFile(String filePath) async {
     try {
       final dio = Dio();
       final formData = FormData.fromMap({
-        'file': await MultipartFile.fromFile(filePath,
+        'files': await MultipartFile.fromFile(filePath,
             filename: filePath.split(Platform.pathSeparator).last),
       });
       final response = await dio.post(
@@ -392,7 +481,10 @@ class _GroupConversationScreenState
       if (response.statusCode == 200) {
         final data = response.data;
         if (data is Map) {
-          return data['url'] ?? data['filename']?.toString();
+          final files = data['files'];
+          if (files is List && files.isNotEmpty) {
+            return files[0]['filename']?.toString();
+          }
         }
       }
     } catch (e) {
@@ -402,56 +494,77 @@ class _GroupConversationScreenState
   }
 
   Future<void> _pickImage() async {
-    final xFile =
-        await _imagePicker.pickImage(source: ImageSource.gallery);
+    final xFile = await _imagePicker.pickImage(source: ImageSource.gallery);
     if (xFile == null) return;
-    if (mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(_s.uploadingImage)));
-    }
-    final url = await _uploadFile(xFile.path);
-    if (url != null) {
-      _sendMessage(
-          '${AppConstants.serverUrl}/public/$url', AppConstants.typeImage);
-    } else if (mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(_s.uploadFailed)));
-    }
+    await _uploadAndSendMedia(xFile.path, AppConstants.typeImage);
   }
 
   Future<void> _pickVideo() async {
-    final xFile =
-        await _imagePicker.pickVideo(source: ImageSource.gallery);
+    final xFile = await _imagePicker.pickVideo(source: ImageSource.gallery);
     if (xFile == null) return;
-    if (mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(_s.uploadingVideo)));
-    }
-    final url = await _uploadFile(xFile.path);
-    if (url != null) {
-      _sendMessage(
-          '${AppConstants.serverUrl}/public/$url', AppConstants.typeVideo);
-    } else if (mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(_s.uploadFailed)));
-    }
+    await _uploadAndSendMedia(xFile.path, AppConstants.typeVideo);
   }
 
   Future<void> _pickFile() async {
     final result = await FilePicker.platform.pickFiles();
     if (result == null || result.files.single.path == null) return;
-    if (mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(_s.uploading)));
+    await _uploadAndSendMedia(result.files.single.path!, AppConstants.typeFile);
+  }
+
+  /// Shows media immediately in chat with a spinner, uploads, then sends to all members.
+  Future<void> _uploadAndSendMedia(String localPath, int type) async {
+    final myId = _myDeviceId;
+    final createdAt = DateTime.now().toIso8601String();
+    final tempId = '${myId}_$createdAt';
+
+    // 1. Show in chat immediately with local path + spinner
+    setState(() => _uploadingLocalPaths[tempId] = localPath);
+    await ref.read(messagesProvider(widget.group.groupId).notifier).addMessage(RemoteMessage(
+      messageId: tempId,
+      roomId: widget.group.groupId,
+      messageContent: localPath,
+      typeMessage: type,
+      senderDeviceId: myId,
+      createdAt: createdAt,
+      isPin: 0,
+      status: AppConstants.statusSending,
+    ));
+    _scrollToBottom();
+
+    // 2. Upload
+    final filename = await _uploadFile(localPath);
+    if (!mounted) return;
+    setState(() => _uploadingLocalPaths.remove(tempId));
+
+    if (filename == null) {
+      ref.read(messagesProvider(widget.group.groupId).notifier).removeMessage(tempId);
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(_s.uploadFailed)));
+      return;
     }
-    final url = await _uploadFile(result.files.single.path!);
-    if (url != null) {
-      _sendMessage(
-          '${AppConstants.serverUrl}/public/$url', AppConstants.typeFile);
-    } else if (mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(_s.uploadFailed)));
+
+    // 3. Update message with real URL
+    final url = '${AppConstants.serverUrl}/public/$filename';
+    ref.read(messagesProvider(widget.group.groupId).notifier)
+        .updateMessageContent(tempId, url, status: AppConstants.statusSent);
+    ref.read(groupsProvider.notifier).updateLastMessage(
+        widget.group.groupId, url, DateTime.now());
+
+    // 4. Send to all group members
+    final fullContent = '$_roomId:$url';
+    for (final memberId in widget.group.memberIds) {
+      if (memberId == myId) continue;
+      SocketClient.instance.emit(AppConstants.pvSendMessage, {
+        'room_id': widget.group.groupId,
+        'message_content': fullContent,
+        'type_message': type,
+        'sender_device_id': myId,
+        'receiver_device_id': memberId,
+        'created_at': createdAt,
+        if (_replyTo?.messageId != null) 'reply_message_id': _replyTo!.messageId,
+      });
     }
+    setState(() => _replyTo = null);
   }
 
   // ── Delete ────────────────────────────────────────────────────────────────
@@ -650,6 +763,7 @@ class _GroupConversationScreenState
     SocketClient.instance.off(AppConstants.pvMessagePinList, _onMessagePinList);
     SocketClient.instance.off(AppConstants.pvMessageDelivered, _onMessageDelivered);
     SocketClient.instance.off(AppConstants.pvMessageRead, _onMessageRead);
+    _countdownTimer?.cancel();
     _textController.dispose();
     _searchController.dispose();
     _scrollController.dispose();
@@ -1247,6 +1361,9 @@ class _GroupConversationScreenState
                               ],
                             ],
                           ),
+                          // Self-destruct countdown
+                          if (msg.deadTime != null)
+                            _buildCountdown(msg),
                         ],
                       ),
                     ),
@@ -1330,8 +1447,35 @@ class _GroupConversationScreenState
   }
 
   Widget _buildMessageContent(RemoteMessage msg, ColorScheme colorScheme) {
+    final isUploading = _uploadingLocalPaths.containsKey(msg.messageId);
+    final localPath = _uploadingLocalPaths[msg.messageId];
+
     switch (msg.typeMessage) {
       case AppConstants.typeImage:
+        if (isUploading && localPath != null) {
+          return SizedBox(
+            width: 200,
+            height: 200,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.file(File(localPath), fit: BoxFit.cover),
+                ),
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.black45,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Center(
+                    child: CircularProgressIndicator(color: Colors.white),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
         return GestureDetector(
           onTap: () => Navigator.push(
             context,
@@ -1354,7 +1498,7 @@ class _GroupConversationScreenState
 
       case AppConstants.typeVideo:
         return GestureDetector(
-          onTap: () => Navigator.push(
+          onTap: isUploading ? null : () => Navigator.push(
             context,
             MaterialPageRoute(
               builder: (_) =>
@@ -1372,8 +1516,10 @@ class _GroupConversationScreenState
                   borderRadius: BorderRadius.circular(8),
                 ),
               ),
-              const Icon(Icons.play_circle_filled,
-                  size: 48, color: Colors.white),
+              if (isUploading)
+                const CircularProgressIndicator(color: Colors.white)
+              else
+                const Icon(Icons.play_circle_filled, size: 48, color: Colors.white),
             ],
           ),
         );
@@ -1382,13 +1528,28 @@ class _GroupConversationScreenState
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.insert_drive_file, size: 36),
+            isUploading
+                ? const SizedBox(
+                    width: 36,
+                    height: 36,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.insert_drive_file, size: 36),
             const SizedBox(width: 8),
             Flexible(
-              child: Text(
-                msg.messageContent?.split('/').last ?? 'File',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    msg.messageContent?.split('/').last ??
+                        msg.messageContent?.split(Platform.pathSeparator).last ??
+                        'File',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w500),
+                  ),
+                  if (isUploading)
+                    Text(_s.uploading, style: const TextStyle(fontSize: 11)),
+                ],
               ),
             ),
           ],
