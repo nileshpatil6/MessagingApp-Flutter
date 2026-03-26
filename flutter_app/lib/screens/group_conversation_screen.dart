@@ -302,15 +302,17 @@ class _GroupConversationScreenState
             filename: picked.path.split(Platform.pathSeparator).last),
       });
       final resp = await dio.post(AppConstants.uploadFileChatUrl, data: formData);
-      String? filename;
+      String? url;
       if (resp.statusCode == 200 && resp.data is Map) {
         final files = resp.data['files'];
-        if (files is List && files.isNotEmpty) {
-          filename = files[0]['filename']?.toString();
+        if (files is List && files.isNotEmpty && files[0] is Map) {
+          final relUrl = (files[0] as Map)['url']?.toString();
+          if (relUrl != null && relUrl.isNotEmpty) {
+            url = '${AppConstants.serverUrl}$relUrl';
+          }
         }
       }
-      if (filename == null || filename.isEmpty) return;
-      final url = '${AppConstants.serverUrl}/public/$filename';
+      if (url == null || url.isEmpty) return;
 
       final changeMsg =
           '${AppConstants.grpIconPrefix}${widget.group.groupId}:$url]';
@@ -475,6 +477,7 @@ class _GroupConversationScreenState
 
   // ── Upload & send media ────────────────────────────────────────────────────
 
+  /// Uploads [filePath] and returns the FULL URL (e.g. http://server/public/x.jpg).
   Future<String?> _uploadFile(String filePath) async {
     try {
       final dio = Dio();
@@ -490,8 +493,13 @@ class _GroupConversationScreenState
         final data = response.data;
         if (data is Map) {
           final files = data['files'];
-          if (files is List && files.isNotEmpty) {
-            return files[0]['filename']?.toString();
+          if (files is List && files.isNotEmpty && files[0] is Map) {
+            // Server returns {"filename": "...", "url": "/public/..."}
+            // Use 'url' directly to avoid dynamic map access issues
+            final relUrl = (files[0] as Map)['url']?.toString();
+            if (relUrl != null && relUrl.isNotEmpty) {
+              return '${AppConstants.serverUrl}$relUrl';
+            }
           }
         }
       }
@@ -539,12 +547,12 @@ class _GroupConversationScreenState
     ));
     _scrollToBottom();
 
-    // 2. Upload
-    final filename = await _uploadFile(localPath);
+    // 2. Upload — _uploadFile now returns the full URL
+    final url = await _uploadFile(localPath);
     if (!mounted) return;
     setState(() => _uploadingLocalPaths.remove(tempId));
 
-    if (filename == null) {
+    if (url == null) {
       ref.read(messagesProvider(widget.group.groupId).notifier).removeMessage(tempId);
       ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(_s.uploadFailed)));
@@ -552,7 +560,6 @@ class _GroupConversationScreenState
     }
 
     // 3. Update message with real URL
-    final url = '${AppConstants.serverUrl}/public/$filename';
     ref.read(messagesProvider(widget.group.groupId).notifier)
         .updateMessageContent(tempId, url, status: AppConstants.statusSent);
     ref.read(groupsProvider.notifier).updateLastMessage(

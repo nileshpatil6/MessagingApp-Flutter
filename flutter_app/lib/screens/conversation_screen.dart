@@ -548,9 +548,12 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
         final data = response.data;
         if (data is Map) {
           final files = data['files'];
-          if (files is List && files.isNotEmpty) {
-            // Return just the filename; callers build the full URL themselves
-            return files[0]['filename']?.toString();
+          if (files is List && files.isNotEmpty && files[0] is Map) {
+            // Use server's 'url' field directly to avoid dynamic map access issues
+            final relUrl = (files[0] as Map)['url']?.toString();
+            if (relUrl != null && relUrl.isNotEmpty) {
+              return '${AppConstants.serverUrl}$relUrl';
+            }
           }
         }
       }
@@ -595,12 +598,12 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
     ));
     _scrollToBottom();
 
-    // 2. Upload
-    final filename = await _uploadFile(localPath);
+    // 2. Upload — _uploadFile now returns the full URL directly
+    final url = await _uploadFile(localPath);
     if (!mounted) return;
     setState(() => _uploadingLocalPaths.remove(tempId));
 
-    if (filename == null) {
+    if (url == null) {
       ref.read(messagesProvider(_roomId).notifier).removeMessage(tempId);
       ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(_s.uploadFailed)));
@@ -608,7 +611,6 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
     }
 
     // 3. Compute deadTime AFTER upload so timer starts from send time
-    final url = '${AppConstants.serverUrl}/public/$filename';
     final expiryIso = _computeExpiryIso(_deadTime);
     final mappedDeadTime = _mapDeadTime(_deadTime);
 
