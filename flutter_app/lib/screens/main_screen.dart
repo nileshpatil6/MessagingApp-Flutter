@@ -170,37 +170,11 @@ class _MainScreenState extends ConsumerState<MainScreen>
         return; // do NOT show in DMs
       }
 
-      // ── Other group system messages (leave/name/icon) ─────────────────────
-      if (rawContent.startsWith(AppConstants.grpLeavePrefix)) {
-        return; // handled by group_conversation_screen only
-      }
-      if (rawContent.startsWith(AppConstants.grpNamePrefix)) {
-        // [GRP_NAME:{groupId}:{newName}]
-        try {
-          final inner = rawContent.substring(
-              AppConstants.grpNamePrefix.length, rawContent.length - 1);
-          final parts = inner.split(':');
-          if (parts.length >= 2) {
-            final gid = parts[0];
-            final newName = parts.sublist(1).join(':');
-            ref.read(groupsProvider.notifier).updateGroupName(gid, newName);
-          }
-        } catch (_) {}
-        return;
-      }
-      if (rawContent.startsWith(AppConstants.grpIconPrefix)) {
-        // [GRP_ICON:{groupId}:{url}]
-        try {
-          final inner = rawContent.substring(
-              AppConstants.grpIconPrefix.length, rawContent.length - 1);
-          final colonIdx = inner.indexOf(':');
-          if (colonIdx >= 0) {
-            final gid = inner.substring(0, colonIdx);
-            final url = inner.substring(colonIdx + 1);
-            ref.read(groupsProvider.notifier).updateGroupIcon(gid, url);
-          }
-        } catch (_) {}
-        return;
+      // ── Other group system prefixes (bare leave/name/icon without [GRP:] wrapper) ─
+      if (rawContent.startsWith(AppConstants.grpLeavePrefix) ||
+          rawContent.startsWith(AppConstants.grpNamePrefix) ||
+          rawContent.startsWith(AppConstants.grpIconPrefix)) {
+        return; // ignore — these always arrive inside [GRP:] wrapper handled above
       }
 
       // ── DM message ────────────────────────────────────────────────────────
@@ -345,6 +319,47 @@ class _MainScreenState extends ConsumerState<MainScreen>
       final text = prefixEnd + 1 < rawContent.length
           ? rawContent.substring(prefixEnd + 2) // skip ']:' separator
           : '';
+      // ── System messages embedded in group messages ────────────────────────
+      if (text.startsWith(AppConstants.grpNamePrefix)) {
+        // [GRP_NAME:{groupId}:{newName}]
+        try {
+          final inner = text.substring(
+              AppConstants.grpNamePrefix.length, text.length - 1);
+          final colonIdx = inner.indexOf(':');
+          if (colonIdx >= 0) {
+            final gid = inner.substring(0, colonIdx);
+            final newName = inner.substring(colonIdx + 1);
+            ref.read(groupsProvider.notifier).updateGroupName(gid, newName);
+          }
+        } catch (_) {}
+        return;
+      }
+      if (text.startsWith(AppConstants.grpIconPrefix)) {
+        // [GRP_ICON:{groupId}:{url}]
+        try {
+          final inner = text.substring(
+              AppConstants.grpIconPrefix.length, text.length - 1);
+          final colonIdx = inner.indexOf(':');
+          if (colonIdx >= 0) {
+            final gid = inner.substring(0, colonIdx);
+            final url = inner.substring(colonIdx + 1);
+            ref.read(groupsProvider.notifier).updateGroupIcon(gid, url);
+          }
+        } catch (_) {}
+        return;
+      }
+      if (text.startsWith(AppConstants.grpLeavePrefix)) {
+        // [GRP_LEAVE:{groupId}] — remove member from group
+        try {
+          final gid = text.substring(
+              AppConstants.grpLeavePrefix.length, text.length - 1);
+          if (msg.senderDeviceId != null) {
+            ref.read(groupsProvider.notifier).removeMember(gid, msg.senderDeviceId!);
+          }
+        } catch (_) {}
+        return;
+      }
+
       final displayText = text.isNotEmpty ? text : '📎 Media';
 
       // Generate stable local ID (same formula as group_conversation_screen)

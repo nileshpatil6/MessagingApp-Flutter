@@ -162,13 +162,13 @@ class _GroupConversationScreenState
       ref.read(messagesProvider(widget.group.groupId).notifier).addMessage(displayMsg);
       _scrollToBottom();
 
-      // System message handling
-      if (content.contains(AppConstants.grpNamePrefix)) {
-        _handleGroupNameChange(content);
-      } else if (content.contains(AppConstants.grpIconPrefix)) {
-        _handleGroupIconChange(content);
-      } else if (content.contains(AppConstants.grpLeavePrefix)) {
-        _handleMemberLeave(content, msg.senderDeviceId ?? '');
+      // System message handling — use strippedContent (no room prefix)
+      if (strippedContent.startsWith(AppConstants.grpNamePrefix)) {
+        _handleGroupNameChange(strippedContent);
+      } else if (strippedContent.startsWith(AppConstants.grpIconPrefix)) {
+        _handleGroupIconChange(strippedContent);
+      } else if (strippedContent.startsWith(AppConstants.grpLeavePrefix)) {
+        _handleMemberLeave(strippedContent, msg.senderDeviceId ?? '');
       }
 
       ref.read(groupsProvider.notifier).updateLastMessage(

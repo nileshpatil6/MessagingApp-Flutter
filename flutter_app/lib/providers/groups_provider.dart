@@ -33,22 +33,46 @@ class GroupsNotifier extends StateNotifier<List<GroupData>> {
   }
 
   void updateGroupName(String groupId, String newName) {
-    state = state.map((g) {
-      if (g.groupId == groupId) {
-        g.groupName = newName;
-      }
-      return g;
-    }).toList();
+    state = [
+      for (final g in state)
+        if (g.groupId == groupId)
+          GroupData(
+            groupId: g.groupId,
+            groupName: newName,
+            adminId: g.adminId,
+            memberIds: g.memberIds,
+            iconUrl: g.iconUrl,
+            createdAt: g.createdAt,
+            isMuted: g.isMuted,
+            unreadCount: g.unreadCount,
+            lastMessage: g.lastMessage,
+            lastMessageTime: g.lastMessageTime,
+          )
+        else
+          g,
+    ];
     saveToStorage();
   }
 
   void updateGroupIcon(String groupId, String? iconUrl) {
-    state = state.map((g) {
-      if (g.groupId == groupId) {
-        g.iconUrl = iconUrl;
-      }
-      return g;
-    }).toList();
+    state = [
+      for (final g in state)
+        if (g.groupId == groupId)
+          GroupData(
+            groupId: g.groupId,
+            groupName: g.groupName,
+            adminId: g.adminId,
+            memberIds: g.memberIds,
+            iconUrl: iconUrl,
+            createdAt: g.createdAt,
+            isMuted: g.isMuted,
+            unreadCount: g.unreadCount,
+            lastMessage: g.lastMessage,
+            lastMessageTime: g.lastMessageTime,
+          )
+        else
+          g,
+    ];
     saveToStorage();
   }
 
