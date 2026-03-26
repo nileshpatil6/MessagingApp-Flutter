@@ -54,6 +54,11 @@ class _GroupConversationScreenState
   Timer? _countdownTimer;
   RemoteMessage? _replyTo;
 
+  // Local copies of group name/icon — updated immediately via setState
+  // so the AppBar reflects changes without waiting for the Riverpod cycle.
+  late String _groupName;
+  String? _groupIconUrl;
+
   // Floating context menu state (no blur overlay — LINE style)
   RemoteMessage? _contextMsg;
   Offset? _contextMenuOffset;
@@ -74,6 +79,8 @@ class _GroupConversationScreenState
   @override
   void initState() {
     super.initState();
+    _groupName = widget.group.groupName;
+    _groupIconUrl = widget.group.iconUrl;
     WidgetsBinding.instance.addPostFrameCallback((_) => _init());
   }
 
@@ -258,9 +265,8 @@ class _GroupConversationScreenState
         final gid = parts[0];
         final newName = parts.sublist(1).join(':');
         if (gid == widget.group.groupId) {
-          ref
-              .read(groupsProvider.notifier)
-              .updateGroupName(gid, newName);
+          ref.read(groupsProvider.notifier).updateGroupName(gid, newName);
+          if (mounted) setState(() => _groupName = newName);
         }
       }
     } catch (_) {}
@@ -277,6 +283,7 @@ class _GroupConversationScreenState
         final url = inner.substring(colonIdx + 1);
         if (gid == widget.group.groupId) {
           ref.read(groupsProvider.notifier).updateGroupIcon(gid, url);
+          if (mounted) setState(() => _groupIconUrl = url);
         }
       }
     } catch (_) {}
@@ -309,6 +316,7 @@ class _GroupConversationScreenState
           '${AppConstants.grpIconPrefix}${widget.group.groupId}:$url]';
       _sendMessage(changeMsg, AppConstants.typeText);
       ref.read(groupsProvider.notifier).updateGroupIcon(widget.group.groupId, url);
+      setState(() => _groupIconUrl = url);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -648,7 +656,7 @@ class _GroupConversationScreenState
 
   void _renameGroup(BuildContext context, GroupData group) {
     final controller =
-        TextEditingController(text: group.groupName);
+        TextEditingController(text: _groupName);
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
@@ -675,6 +683,7 @@ class _GroupConversationScreenState
               ref
                   .read(groupsProvider.notifier)
                   .updateGroupName(widget.group.groupId, newName);
+              setState(() => _groupName = newName);
             },
             child: Text(_s.save),
           ),
@@ -1082,12 +1091,12 @@ class _GroupConversationScreenState
           children: [
             CircleAvatar(
               radius: 18,
-              backgroundImage: group.iconUrl != null
-                  ? NetworkImage(group.iconUrl!)
+              backgroundImage: _groupIconUrl != null
+                  ? NetworkImage(_groupIconUrl!)
                   : null,
-              child: group.iconUrl == null
-                  ? Text(group.groupName.isNotEmpty
-                      ? group.groupName[0].toUpperCase()
+              child: _groupIconUrl == null
+                  ? Text(_groupName.isNotEmpty
+                      ? _groupName[0].toUpperCase()
                       : 'G')
                   : null,
             ),
@@ -1097,7 +1106,7 @@ class _GroupConversationScreenState
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    group.groupName,
+                    _groupName,
                     style: const TextStyle(fontSize: 16),
                     overflow: TextOverflow.ellipsis,
                   ),
